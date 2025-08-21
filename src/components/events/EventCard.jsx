@@ -1,4 +1,12 @@
-export default function EventCard({ title, year, color = 'emerald' }) {
+import { memo } from 'react';
+
+/**
+ * @typedef {Object} EventCardProps
+ * @property {string} title
+ * @property {number|string} year
+ * @property {'emerald'|'blue'|'violet'|'amber'|'rose'|'slate'} [color]
+ */
+function EventCard({ title, year, color = 'emerald' }) {
   const border = {
     emerald: 'border-emerald-300',
     blue: 'border-blue-300',
@@ -22,3 +30,5 @@ export default function EventCard({ title, year, color = 'emerald' }) {
     </div>
   );
 }
+
+export default memo(EventCard);

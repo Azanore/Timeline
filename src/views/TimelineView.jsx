@@ -1,23 +1,12 @@
-import { useMemo } from 'react';
 import { useTimeline } from '../hooks/useTimeline';
 import { useEvents } from '../hooks/useEvents';
 import Timeline from '../components/timeline/Timeline.jsx';
 import ZoomControls from '../components/timeline/ZoomControls.jsx';
 
 export default function TimelineView() {
-  const { timelines, activeTimelineId } = useTimeline();
+  const { timelines, activeTimelineId, domain } = useTimeline();
   const { events } = useEvents();
   const activeName = timelines.find(t => t.id === activeTimelineId)?.name || 'Untitled';
-
-  const domain = useMemo(() => {
-    if (!events || events.length === 0) return [1990, 2030];
-    const years = events.map(e => Number(e.start?.year)).filter(Boolean);
-    if (years.length === 0) return [1990, 2030];
-    const min = Math.min(...years);
-    const max = Math.max(...years);
-    const pad = Math.max(1, Math.round((max - min) * 0.1));
-    return [min - pad, max + pad];
-  }, [events]);
 
   return (
     <section className="max-w-6xl mx-auto px-4 py-8">

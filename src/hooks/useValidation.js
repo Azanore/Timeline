@@ -1,4 +1,5 @@
 // Placeholder validation hook.
+import { comparePartialDate } from '../utils';
 export function useValidation() {
   const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0);
   const daysInMonth = (y, m) => [31, isLeapYear(y) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1] || 31;
@@ -39,12 +40,11 @@ export function useValidation() {
     // End date validation (optional)
     if (e?.end) {
       if (!isValidDateParts(e.end)) errors.end = 'Invalid end date/time';
-      // Optional: ensure end is not before start if both valid
+      // Ensure end is not before start if both valid (numeric comparison)
       try {
         const a = e.start || {};
         const b = e.end || {};
-        const toKey = (x) => [x.year||0, x.month||0, x.day||0, x.hour||0, x.minute||0].join('|');
-        if (toKey(b) < toKey(a)) errors.range = 'End must be after start';
+        if (comparePartialDate(b, a) < 0) errors.range = 'End must be after start';
       } catch {}
     }
 

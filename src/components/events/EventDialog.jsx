@@ -2,7 +2,18 @@ import Modal from '../ui/Modal.jsx';
 import EventForm from './EventForm.jsx';
 import { useEvents } from '../../hooks/useEvents';
 import { useState, useMemo } from 'react';
+import Button from '../ui/Button.jsx';
 
+/**
+ * @typedef {Object} EventDialogProps
+ * @property {boolean} open
+ * @property {() => void} onClose
+ * @property {{ id:string, title:string, body?:string, type?:string, start:any, end?:any }} event
+ */
+
+/**
+ * @param {EventDialogProps} props
+ */
 export default function EventDialog({ open, onClose, event }) {
   const { updateEvent, removeEvent } = useEvents();
   const [isValid, setIsValid] = useState(true);
@@ -49,31 +60,24 @@ export default function EventDialog({ open, onClose, event }) {
           )}
           <div className="mt-4 flex justify-between">
             <div className="flex gap-2">
-              <button
-                type="button"
-                className="px-3 py-1.5 text-sm rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
-                onClick={() => setMode('edit')}
-              >
+              <Button variant="outline" size="md" onClick={() => setMode('edit')}>
                 Edit
-              </button>
-              <button
-                type="button"
-                className="px-3 py-1.5 text-sm rounded border border-rose-300 text-rose-700 hover:bg-rose-50"
+              </Button>
+              <Button
+                variant="outline"
+                size="md"
+                className="border-rose-300 text-rose-700 hover:bg-rose-50"
                 onClick={() => {
                   removeEvent(event.id);
                   onClose?.();
                 }}
               >
                 Delete
-              </button>
+              </Button>
             </div>
-            <button
-              type="button"
-              className="px-3 py-1.5 text-sm rounded border border-slate-300 text-slate-700 hover:bg-slate-50"
-              onClick={onClose}
-            >
+            <Button variant="outline" size="md" onClick={onClose}>
               Close
-            </button>
+            </Button>
           </div>
         </div>
       ) : (

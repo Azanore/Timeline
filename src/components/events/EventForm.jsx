@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { sanitizeText } from '../../utils';
 import { useValidation } from '../../hooks/useValidation';
+import Input from '../ui/Input.jsx';
+import Button from '../ui/Button.jsx';
 
 /**
  * @typedef EventInput
@@ -10,6 +12,19 @@ import { useValidation } from '../../hooks/useValidation';
  * @property {{year:number, month?:number, day?:number, hour?:number, minute?:number}} start
  */
 
+/**
+ * @typedef {Object} EventFormProps
+ * @property {EventInput} [value]
+ * @property {(val: EventInput) => void} [onChange]
+ * @property {(valid: boolean) => void} [onValidityChange]
+ * @property {() => void} [onCancel]
+ * @property {(val: EventInput) => void} [onSubmit]
+ * @property {{ submitLabel?: string, cancelLabel?: string }} [labels]
+ */
+
+/**
+ * @param {EventFormProps} props
+ */
 export default function EventForm({ value, onChange, onValidityChange, onCancel, onSubmit, labels = { submitLabel: 'Save', cancelLabel: 'Cancel' } }) {
   const { validateEvent } = useValidation();
   const [local, setLocal] = useState(() => ({
@@ -78,34 +93,28 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
         onSubmit?.(cleaned);
       }}
     >
-      <div>
-        <label className="block text-sm text-slate-700 mb-1">Title</label>
-        <input
-          className="w-full border rounded px-2 py-1 text-sm"
-          value={local.title}
-          maxLength={100}
-          onChange={(e) => update({ title: e.target.value })}
-          placeholder="Event title"
-          required
-        />
-        {errors.title && <p className="text-xs text-rose-600 mt-1">{errors.title}</p>}
-      </div>
+      <Input
+        label="Title"
+        value={local.title}
+        maxLength={100}
+        onChange={(e) => update({ title: e.target.value })}
+        placeholder="Event title"
+        required
+        error={errors.title}
+      />
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm text-slate-700 mb-1">Year</label>
-          <input
-            type="number"
-            className="w-full border rounded px-2 py-1 text-sm"
-            value={local.start.year}
-            onChange={(e) => updateStart({ year: Number(e.target.value) })}
-            min={1900}
-            max={2100}
-            placeholder="YYYY"
-            required
-          />
-          {errors.start && <p className="text-xs text-rose-600 mt-1">{errors.start}</p>}
-        </div>
+        <Input
+          label="Year"
+          type="number"
+          value={local.start.year}
+          onChange={(e) => updateStart({ year: Number(e.target.value) })}
+          min={1900}
+          max={2100}
+          placeholder="YYYY"
+          required
+          error={errors.start}
+        />
         <div>
           <label className="block text-sm text-slate-700 mb-1">Type</label>
           <select
@@ -124,54 +133,42 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <div>
-          <label className="block text-sm text-slate-700 mb-1">Month</label>
-          <input
-            type="number"
-            className="w-full border rounded px-2 py-1 text-sm"
-            value={local.start.month}
-            onChange={(e) => updateStart({ month: e.target.value ? Number(e.target.value) : '' })}
-            min={1}
-            max={12}
-            placeholder="MM"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-slate-700 mb-1">Day</label>
-          <input
-            type="number"
-            className="w-full border rounded px-2 py-1 text-sm"
-            value={local.start.day}
-            onChange={(e) => updateStart({ day: e.target.value ? Number(e.target.value) : '' })}
-            min={1}
-            max={31}
-            placeholder="DD"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-slate-700 mb-1">Hour</label>
-          <input
-            type="number"
-            className="w-full border rounded px-2 py-1 text-sm"
-            value={local.start.hour}
-            onChange={(e) => updateStart({ hour: e.target.value ? Number(e.target.value) : '' })}
-            min={0}
-            max={23}
-            placeholder="HH"
-          />
-        </div>
-        <div>
-          <label className="block text-sm text-slate-700 mb-1">Minute</label>
-          <input
-            type="number"
-            className="w-full border rounded px-2 py-1 text-sm"
-            value={local.start.minute}
-            onChange={(e) => updateStart({ minute: e.target.value ? Number(e.target.value) : '' })}
-            min={0}
-            max={59}
-            placeholder="MM"
-          />
-        </div>
+        <Input
+          label="Month"
+          type="number"
+          value={local.start.month}
+          onChange={(e) => updateStart({ month: e.target.value ? Number(e.target.value) : '' })}
+          min={1}
+          max={12}
+          placeholder="MM"
+        />
+        <Input
+          label="Day"
+          type="number"
+          value={local.start.day}
+          onChange={(e) => updateStart({ day: e.target.value ? Number(e.target.value) : '' })}
+          min={1}
+          max={31}
+          placeholder="DD"
+        />
+        <Input
+          label="Hour"
+          type="number"
+          value={local.start.hour}
+          onChange={(e) => updateStart({ hour: e.target.value ? Number(e.target.value) : '' })}
+          min={0}
+          max={23}
+          placeholder="HH"
+        />
+        <Input
+          label="Minute"
+          type="number"
+          value={local.start.minute}
+          onChange={(e) => updateStart({ minute: e.target.value ? Number(e.target.value) : '' })}
+          min={0}
+          max={59}
+          placeholder="MM"
+        />
       </div>
 
       <div className="pt-2">
@@ -183,72 +180,57 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
 
       {endEnabled && (
         <div className="grid grid-cols-5 gap-3">
-          <div>
-            <label className="block text-sm text-slate-700 mb-1">End Year</label>
-            <input
-              type="number"
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={local.end?.year || ''}
-              onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
-              min={1900}
-              max={2100}
-              placeholder="YYYY"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1">Month</label>
-            <input
-              type="number"
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={local.end?.month || ''}
-              onChange={(e) => updateEnd({ month: e.target.value ? Number(e.target.value) : '' })}
-              min={1}
-              max={12}
-              placeholder="MM"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1">Day</label>
-            <input
-              type="number"
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={local.end?.day || ''}
-              onChange={(e) => updateEnd({ day: e.target.value ? Number(e.target.value) : '' })}
-              min={1}
-              max={31}
-              placeholder="DD"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1">Hour</label>
-            <input
-              type="number"
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={local.end?.hour || ''}
-              onChange={(e) => updateEnd({ hour: e.target.value ? Number(e.target.value) : '' })}
-              min={0}
-              max={23}
-              placeholder="HH"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-slate-700 mb-1">Minute</label>
-            <input
-              type="number"
-              className="w-full border rounded px-2 py-1 text-sm"
-              value={local.end?.minute || ''}
-              onChange={(e) => updateEnd({ minute: e.target.value ? Number(e.target.value) : '' })}
-              min={0}
-              max={59}
-              placeholder="MM"
-            />
-          </div>
+          <Input
+            label="End Year"
+            type="number"
+            value={local.end?.year || ''}
+            onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
+            min={1900}
+            max={2100}
+            placeholder="YYYY"
+          />
+          <Input
+            label="Month"
+            type="number"
+            value={local.end?.month || ''}
+            onChange={(e) => updateEnd({ month: e.target.value ? Number(e.target.value) : '' })}
+            min={1}
+            max={12}
+            placeholder="MM"
+          />
+          <Input
+            label="Day"
+            type="number"
+            value={local.end?.day || ''}
+            onChange={(e) => updateEnd({ day: e.target.value ? Number(e.target.value) : '' })}
+            min={1}
+            max={31}
+            placeholder="DD"
+          />
+          <Input
+            label="Hour"
+            type="number"
+            value={local.end?.hour || ''}
+            onChange={(e) => updateEnd({ hour: e.target.value ? Number(e.target.value) : '' })}
+            min={0}
+            max={23}
+            placeholder="HH"
+          />
+          <Input
+            label="Minute"
+            type="number"
+            value={local.end?.minute || ''}
+            onChange={(e) => updateEnd({ minute: e.target.value ? Number(e.target.value) : '' })}
+            min={0}
+            max={59}
+            placeholder="MM"
+          />
         </div>
       )}
 
       <div className="flex justify-end gap-2 pt-2">
-        <button type="button" className="px-3 py-1.5 text-sm rounded border" onClick={onCancel}>{labels.cancelLabel}</button>
-        <button type="submit" className="px-3 py-1.5 text-sm rounded bg-emerald-600 text-white hover:bg-emerald-700 transition-all duration-300">{labels.submitLabel}</button>
+        <Button type="button" variant="outline" onClick={onCancel}>{labels.cancelLabel}</Button>
+        <Button type="submit" variant="solid">{labels.submitLabel}</Button>
       </div>
     </form>
   );
