@@ -1,6 +1,6 @@
 import { useContext, useMemo } from 'react';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { buildLinearScaler, buildDecadeMarkers } from '../../utils';
+import { buildLinearScaler, buildDecadeMarkers, formatUTCMonthShort, formatUTCYear, getAxisTickConfig, toYearFraction } from '../../utils';
 
 /**
  * @typedef {Object} TimelineAxisProps
@@ -18,6 +18,85 @@ export default function TimelineAxis({ domain = [1990, 2030], orientation = 'hor
 
   const markers = useMemo(() => buildDecadeMarkers(domain, scale), [domain, scale]);
   const scaler = useMemo(() => buildLinearScaler(domain), [domain]);
+  const tickCfg = useMemo(() => getAxisTickConfig(scale), [scale]);
+
+  // Compute visible year range given current scale and pan
+  const visibleRange = useMemo(() => {
+    // uScaled = (u - 0.5) * scale + 0.5 + pan
+    // For uScaled in [0,1], solve for u at edges 0 and 1
+    const uMin = ((0 - 0.5) - pan) / scale + 0.5;
+    const uMax = ((1 - 0.5) - pan) / scale + 0.5;
+    const yMin = scaler.fromUnit(Math.max(0, Math.min(1, uMin)));
+    const yMax = scaler.fromUnit(Math.max(0, Math.min(1, uMax)));
+    const a = Math.min(yMin, yMax);
+    const b = Math.max(yMin, yMax);
+    // small buffer to avoid label popping
+    const pad = (b - a) * 0.05;
+    return [a - pad, b + pad];
+  }, [pan, scale, scaler]);
+
+  // Build finer ticks (months/days/hours) within visible range
+  const fineTicks = useMemo(() => {
+    const [vMin, vMax] = visibleRange;
+    const items = [];
+    const unit = tickCfg.unit;
+    const step = tickCfg.step || 1;
+    if (unit === 'month') {
+      const yStart = Math.floor(vMin);
+      const yEnd = Math.ceil(vMax);
+      for (let y = yStart; y <= yEnd; y++) {
+        for (let m = 1; m <= 12; m += step) {
+          const yf = y + (m - 1) / 12;
+          if (yf < vMin || yf > vMax) continue;
+          items.push({ type: 'month', y, m, yf });
+        }
+      }
+    } else if (unit === 'day') {
+      // Iterate days via UTC Date to handle month lengths/leap years
+      const startYear = Math.floor(vMin);
+      const endYear = Math.ceil(vMax);
+      const maxTicks = 1200; // safety cap
+      let count = 0;
+      for (let y = startYear; y <= endYear; y++) {
+        const start = Date.UTC(y, 0, 1, 0, 0, 0, 0);
+        const end = Date.UTC(y + 1, 0, 1, 0, 0, 0, 0);
+        const dayMs = 24 * 60 * 60 * 1000 * step;
+        for (let t = start; t < end; t += dayMs) {
+          const d = new Date(t);
+          const yy = d.getUTCFullYear();
+          const mm = d.getUTCMonth() + 1;
+          const dd = d.getUTCDate();
+          const yf = toYearFraction({ year: yy, month: mm, day: dd });
+          if (yf == null || yf < vMin || yf > vMax) continue;
+          items.push({ type: 'day', y: yy, m: mm, d: dd, yf });
+          if (++count > maxTicks) break;
+        }
+        if (count > maxTicks) break;
+      }
+    } else if (unit === 'hour') {
+      const startYear = Math.floor(vMin);
+      const endYear = Math.ceil(vMax);
+      const maxTicks = 1500; // safety cap
+      let count = 0;
+      for (let y = startYear; y <= endYear; y++) {
+        for (let m = 1; m <= 12; m++) {
+          const daysInThisMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+          for (let d = 1; d <= daysInThisMonth; d++) {
+            for (let h = 0; h < 24; h += step) {
+              const yf = toYearFraction({ year: y, month: m, day: d, hour: h });
+              if (yf == null || yf < vMin || yf > vMax) continue;
+              items.push({ type: 'hour', y, m, d, h, yf });
+              if (++count > maxTicks) break;
+            }
+            if (count > maxTicks) break;
+          }
+          if (count > maxTicks) break;
+        }
+        if (count > maxTicks) break;
+      }
+    }
+    return items;
+  }, [tickCfg.unit, tickCfg.step, visibleRange]);
 
   if (orientation === 'vertical') {
     return (
@@ -34,38 +113,37 @@ export default function TimelineAxis({ domain = [1990, 2030], orientation = 'hor
               style={{ top: `${top}%`, transform: 'translateY(-50%)' }}
             >
               <div className="h-px w-3 bg-slate-400 my-auto" />
-              <div className="mt-1 tabular-nums">{y}</div>
+              <div className="mt-1 tabular-nums">{formatUTCYear(y)}</div>
             </div>
           );
         })}
-        {scale > 3 && (() => {
-          // Month-level ticks at higher zoom along vertical axis
-          const [min, max] = domain;
-          const yStart = Math.floor(min);
-          const yEnd = Math.ceil(max);
-          const items = [];
-          for (let y = yStart; y <= yEnd; y++) {
-            for (let m = 1; m <= 12; m++) {
-              const yf = y + (m - 1) / 12;
-              if (yf < min || yf > max) continue;
-              const u = scaler.toUnit(yf);
-              const uScaled = (u - 0.5) * scale + 0.5 + pan;
-              const top = Math.max(0, Math.min(100, (1 - uScaled) * 100));
-              items.push({ key: `${y}-${m}`, top, y, m });
+        {fineTicks.map((it) => {
+          const u = scaler.toUnit(it.yf);
+          const uScaled = (u - 0.5) * scale + 0.5 + pan;
+          const top = Math.max(0, Math.min(100, (1 - uScaled) * 100));
+          const isMajor = (it.type === 'month' && it.m === 1) || (it.type === 'day' && it.d === 1) || (it.type === 'hour' && it.h === 0);
+          const label = (() => {
+            if (!tickCfg.showLabels) return '';
+            if (it.type === 'month') return `${formatUTCMonthShort(it.y, it.m)}${isMajor ? ' ' + formatUTCYear(it.y) : ''}`;
+            if (it.type === 'day') {
+              try {
+                const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
+                const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                return (isMajor ? fmt.format(d) + ' ' + formatUTCYear(it.y) : fmt.format(d));
+              } catch { return `${it.d}`; }
             }
-          }
-          const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          return items.map(({ key, top, m, y }) => (
-            <div key={key} className="absolute left-8 select-none" style={{ top: `${top}%`, transform: 'translateY(-50%)' }}>
-              <div className={`${m === 1 ? 'h-px bg-slate-400 w-3' : 'h-px bg-slate-300/80 w-2' }`} />
-              {scale > 5 && (m === 1 || m === 7) && (
-                <div className="ml-1 text-[10px] text-slate-500 tabular-nums">
-                  {monthNames[m-1]} {m === 1 ? y : ''}
-                </div>
+            if (it.type === 'hour') return `${String(it.h).padStart(2, '0')}:00`;
+            return '';
+          })();
+          return (
+            <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}`} className="absolute left-8 select-none" style={{ top: `${top}%`, transform: 'translateY(-50%)' }}>
+              <div className={`${isMajor ? 'h-px bg-slate-400 w-3' : 'h-px bg-slate-300/80 w-2' }`} />
+              {label && (
+                <div className="ml-1 text-[10px] text-slate-500 tabular-nums">{label}</div>
               )}
             </div>
-          ));
-        })()}
+          );
+        })}
       </div>
     );
   }
@@ -85,38 +163,38 @@ export default function TimelineAxis({ domain = [1990, 2030], orientation = 'hor
             style={{ left: `${left}%`, transform: 'translateX(-50%)' }}
           >
             <div className="w-px h-3 bg-slate-400 mx-auto" />
-            <div className="mt-1 tabular-nums">{y}</div>
+            <div className="mt-1 tabular-nums">{formatUTCYear(y)}</div>
           </div>
         );
       })}
-      {scale > 3 && (() => {
-        // Month-level ticks at higher zoom
-        const [min, max] = domain;
-        const yStart = Math.floor(min);
-        const yEnd = Math.ceil(max);
-        const items = [];
-        for (let y = yStart; y <= yEnd; y++) {
-          for (let m = 1; m <= 12; m++) {
-            const yf = y + (m - 1) / 12;
-            if (yf < min || yf > max) continue;
-            const u = scaler.toUnit(yf);
-            const uScaled = (u - 0.5) * scale + 0.5 + pan;
-            const left = Math.max(0, Math.min(100, uScaled * 100));
-            items.push({ key: `${y}-${m}`, left, y, m });
+      {fineTicks.map((it) => {
+        const u = scaler.toUnit(it.yf);
+        const uScaled = (u - 0.5) * scale + 0.5 + pan;
+        const left = Math.max(0, Math.min(100, uScaled * 100));
+        const isMajor = (it.type === 'month' && it.m === 1) || (it.type === 'day' && it.d === 1) || (it.type === 'hour' && it.h === 0);
+        const label = (() => {
+          if (!tickCfg.showLabels) return '';
+          if (it.type === 'month') return `${formatUTCMonthShort(it.y, it.m)}${isMajor ? ' ' + formatUTCYear(it.y) : ''}`;
+          if (it.type === 'day') {
+            try {
+              const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
+              const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+              return (isMajor ? fmt.format(d) + ' ' + formatUTCYear(it.y) : fmt.format(d));
+            } catch { return `${it.d}`; }
           }
-        }
-        const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        return items.map(({ key, left, m, y }) => (
-          <div key={key} className="absolute top-8 select-none" style={{ left: `${left}%`, transform: 'translateX(-50%)' }}>
-            <div className={`w-px ${m === 1 ? 'h-3 bg-slate-400' : 'h-2 bg-slate-300/80' } mx-auto`} />
-            {scale > 5 && (m === 1 || m === 7) && (
-              <div className="mt-1 text-[10px] text-slate-500 tabular-nums">
-                {monthNames[m-1]} {m === 1 ? y : ''}
-              </div>
+          if (it.type === 'hour') return `${String(it.h).padStart(2, '0')}:00`;
+          return '';
+        })();
+        return (
+          <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}`} className="absolute top-8 select-none" style={{ left: `${left}%`, transform: 'translateX(-50%)' }}>
+            <div className={`w-px ${isMajor ? 'h-3 bg-slate-400' : 'h-2 bg-slate-300/80' } mx-auto`} />
+            {label && (
+              <div className="mt-1 text-[10px] text-slate-500 tabular-nums">{label}</div>
             )}
           </div>
-        ));
-      })()}
+        );
+      })}
     </div>
   );
 }
+

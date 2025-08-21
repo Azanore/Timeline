@@ -1,32 +1,38 @@
 import Modal from '../ui/Modal.jsx';
 import EventForm from './EventForm.jsx';
 import { useEvents } from '../../hooks/useEvents';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Button from '../ui/Button.jsx';
+import { useToast } from '../../hooks/useToast';
+import { formatPartialUTC } from '../../utils';
 
 /**
  * @typedef {Object} EventDialogProps
  * @property {boolean} open
  * @property {() => void} onClose
  * @property {{ id:string, title:string, body?:string, type?:string, start:any, end?:any }} event
+ * @property {boolean} [closeOnSave] - If true, closes the dialog after a successful update
  */
 
 /**
  * @param {EventDialogProps} props
  */
-export default function EventDialog({ open, onClose, event }) {
+export default function EventDialog({ open, onClose, event, closeOnSave = false }) {
   const { updateEvent, removeEvent } = useEvents();
+  const toast = useToast();
   const [isValid, setIsValid] = useState(true);
   const [mode, setMode] = useState('view'); // 'view' | 'edit'
 
+  // Ensure the dialog always opens in view mode and resets on event change
+  useEffect(() => {
+    if (!open) return;
+    setMode('view');
+  }, [open, event?.id]);
+
   const fmtDate = useMemo(() => {
     if (!event) return '';
-    const s = event.start;
-    const e = event.end;
-    const startStr = [s?.year, s?.month && String(s.month).padStart(2, '0'), s?.day && String(s.day).padStart(2, '0')]
-      .filter(Boolean)
-      .join('-');
-    const endStr = e && e.year ? [e.year, e?.month && String(e.month).padStart(2, '0'), e?.day && String(e.day).padStart(2, '0')].filter(Boolean).join('-') : null;
+    const startStr = formatPartialUTC(event.start);
+    const endStr = event.end ? formatPartialUTC(event.end) : '';
     return endStr ? `${startStr} → ${endStr}` : startStr;
   }, [event]);
 
@@ -54,7 +60,7 @@ export default function EventDialog({ open, onClose, event }) {
             <span aria-label="Event date">{fmtDate}</span>
           </div>
           {event.body && (
-            <div className="prose prose-sm max-w-none text-slate-700">
+            <div className="text-sm text-slate-700">
               <p className="whitespace-pre-wrap break-words">{event.body}</p>
             </div>
           )}
@@ -68,7 +74,10 @@ export default function EventDialog({ open, onClose, event }) {
                 size="md"
                 className="border-rose-300 text-rose-700 hover:bg-rose-50"
                 onClick={() => {
+                  const ok = window.confirm('Delete this event? This action cannot be undone.');
+                  if (!ok) return;
                   removeEvent(event.id);
+                  toast.success('Event deleted');
                   onClose?.();
                 }}
               >
@@ -90,7 +99,12 @@ export default function EventDialog({ open, onClose, event }) {
             onSubmit={(val) => {
               if (!isValid) return;
               updateEvent(event.id, { ...event, ...val });
-              setMode('view');
+              toast.success('Event updated');
+              if (closeOnSave) {
+                onClose?.();
+              } else {
+                setMode('view');
+              }
             }}
             labels={{ submitLabel: 'Update', cancelLabel: 'Cancel' }}
           />
@@ -99,3 +113,4 @@ export default function EventDialog({ open, onClose, event }) {
     </Modal>
   );
 }
+

@@ -5,9 +5,11 @@ import FloatingButton from './components/layout/FloatingButton.jsx'
 import Modal from './components/ui/Modal.jsx'
 import EventForm from './components/events/EventForm.jsx'
 import { useEvents } from './hooks/useEvents'
+import { useToast } from './hooks/useToast'
 
 function App() {
   const { addEvent } = useEvents()
+  const toast = useToast()
   const [openAdd, setOpenAdd] = useState(false)
   const [isValid, setIsValid] = useState(false)
   const [formValue, setFormValue] = useState(null)
@@ -15,7 +17,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <main className="flex-1">
+      <main className="flex-1 flex flex-col">
         <TimelineView />
       </main>
       <FloatingButton onClick={() => setOpenAdd(true)} />
@@ -38,6 +40,7 @@ function App() {
             })
             setOpenAdd(false)
             setFormValue(null)
+            toast.success('Event added')
           }}
           labels={{ submitLabel: 'Add', cancelLabel: 'Cancel' }}
         />

@@ -5,14 +5,13 @@ import { useRef } from 'react';
 export const TimelineContext = createContext(null);
 
 const APP_KEY = 'timeline_app';
-const INDEX_KEY = 'timeline_index'; // legacy
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
 export function TimelineProvider({ children }) {
-  const { get, set, remove, makeDebouncedSet } = useLocalStorage();
+  const { get, set, makeDebouncedSet } = useLocalStorage();
   const debouncedSetRef = useRef(null);
 
   const readApp = useCallback(() => {
@@ -26,35 +25,13 @@ export function TimelineProvider({ children }) {
     return next;
   }, [readApp, set]);
 
-  // One-time migration from legacy scattered keys to single APP_KEY
+  // Ensure an app object exists under APP_KEY for fresh installs
   useEffect(() => {
     const app = readApp();
-    if (app) return; // already using consolidated key
-    const idx = get(INDEX_KEY);
-    if (Array.isArray(idx) && idx.length > 0) {
-      const activeId = idx[0]?.id || 'default';
-      const data = {};
-      idx.forEach(t => {
-        const key = `timeline_${t.id}`;
-        const tl = get(key);
-        if (tl) data[t.id] = { id: t.id, name: t.name, createdAt: tl.createdAt || Date.now(), updatedAt: tl.updatedAt || Date.now(), version: tl.version || 1, events: tl.events || [], viewport: tl.viewport || { scale: 1, pan: 0 } };
-      });
-      const consolidated = { version: 1, activeTimelineId: activeId, timelines: idx, data };
-      set(APP_KEY, consolidated);
-      // Clean up legacy keys to reduce clutter
-      try {
-        remove(INDEX_KEY);
-        idx.forEach(t => {
-          remove(`timeline_${t.id}`);
-          remove(`timeline_backup_${t.id}`);
-        });
-      } catch {}
-    } else {
-      // Initialize a fresh app object
-      const consolidated = { version: 1, activeTimelineId: 'default', timelines: [{ id: 'default', name: 'Default', version: 1 }], data: { default: { id: 'default', name: 'Default', createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } } };
-      set(APP_KEY, consolidated);
-    }
-  }, [get, set, remove, readApp]);
+    if (app) return;
+    const consolidated = { version: 1, activeTimelineId: 'default', timelines: [{ id: 'default', name: 'Default', version: 1 }], data: { default: { id: 'default', name: 'Default', createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } } };
+    set(APP_KEY, consolidated);
+  }, [get, set, readApp]);
 
   const initialApp = readApp() || { version: 1, activeTimelineId: 'default', timelines: [{ id: 'default', name: 'Default', version: 1 }], data: { default: { id: 'default', name: 'Default', createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } } };
 
@@ -164,8 +141,8 @@ export function TimelineProvider({ children }) {
     setEvents(prev => prev.filter(e => e.id !== id));
   }, []);
 
-  const setScale = useCallback((s) => setViewport(v => ({ ...v, scale: s })), []);
-  const setPan = useCallback((p) => setViewport(v => ({ ...v, pan: p })), []);
+  const setScale = useCallback((s) => setViewport(v => (v.scale === s ? v : { ...v, scale: s })), []);
+  const setPan = useCallback((p) => setViewport(v => (v.pan === p ? v : { ...v, pan: p })), []);
 
   const value = useMemo(() => ({
     activeTimelineId,

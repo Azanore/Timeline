@@ -1,43 +1,51 @@
-import { useContext, useRef, useState, useCallback, useMemo, useEffect } from 'react';
+import { useContext, useRef, useState, useCallback, useMemo, useEffect, Fragment } from 'react';
 import TimelineAxis from './TimelineAxis.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { clamp, buildLinearScaler, clampPan } from '../../utils';
+import { clamp, buildLinearScaler, clampPan, toYearFraction, typeLegend, snapScale, clusterByPosition } from '../../utils';
 import { useEvents } from '../../hooks/useEvents';
 import EventDialog from '../events/EventDialog.jsx';
-import { useZoomPan } from '../../hooks/useZoomPan';
-import TimelineGroups from './TimelineGroups.jsx';
 
 /**
  * @typedef {Object} TimelineProps
  * @property {[number, number]} domain - Inclusive time domain [minYear, maxYear]
+ * @property {'horizontal'|'vertical'} [orientationOverride] - Optional manual orientation
  */
 
 /**
  * Timeline container: orchestrates axis, events, and interactions.
  * @param {TimelineProps} props
  */
-export default function Timeline({ domain }) {
+export default function Timeline({ domain, orientationOverride, lanesByType = false }) {
   const containerRef = useRef(null);
   const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const [dragging, setDragging] = useState(false);
   const dragState = useRef({ startX: 0, startPan: 0 });
-  const touchState = useRef({
-    mode: 'none', // 'none' | 'pan' | 'pinch'
-    startX: 0,
-    startPan: 0,
-    startDist: 0,
-    startScale: 1,
-  });
-  const { events, clusters, stacks } = useEvents();
+  const rafRef = useRef(null);
+  const pendingPanRef = useRef(null);
+  const pinchRef = useRef({ active: false, startDist: 0, startScale: 1 });
+  const { sortedEvents } = useEvents();
   const scaler = useMemo(() => buildLinearScaler(domain), [domain]);
   const [openEdit, setOpenEdit] = useState(false);
   const [selected, setSelected] = useState(null);
   const [liveMsg, setLiveMsg] = useState('');
-  const [overflowOpenKey, setOverflowOpenKey] = useState(null);
   const [isVertical, setIsVertical] = useState(false);
 
-  // Responsive orientation: vertical on small screens
+  // Build stable lane order by type
+  const typeOrder = useMemo(() => {
+    const map = new Map();
+    (sortedEvents || []).forEach((e) => {
+      const t = e?.type || 'other';
+      if (!map.has(t)) map.set(t, map.size);
+    });
+    return map;
+  }, [sortedEvents]);
+
+  // Orientation: optional manual override; else responsive
   useEffect(() => {
+    if (orientationOverride === 'horizontal' || orientationOverride === 'vertical') {
+      setIsVertical(orientationOverride === 'vertical');
+      return;
+    }
     const mq = window.matchMedia('(max-width: 767px)');
     const onChange = () => setIsVertical(mq.matches);
     onChange();
@@ -45,25 +53,9 @@ export default function Timeline({ domain }) {
     return () => {
       mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange);
     };
-  }, []);
+  }, [orientationOverride]);
 
-  // Type filters
-  const availableTypes = useMemo(() => Array.from(new Set((events || []).map(e => e.type || 'other'))), [events]);
-  const [typeFilter, setTypeFilter] = useState({});
-  useEffect(() => {
-    // ensure all types exist in filter; default to true (shown)
-    setTypeFilter(prev => {
-      const next = { ...prev };
-      availableTypes.forEach(t => { if (typeof next[t] === 'undefined') next[t] = true; });
-      // remove stale keys
-      Object.keys(next).forEach(k => { if (!availableTypes.includes(k)) delete next[k]; });
-      return next;
-    });
-  }, [availableTypes]);
-  const toggleType = useCallback((t) => setTypeFilter(prev => ({ ...prev, [t]: !prev[t] })), []);
-
-  // Debounced viewport updates via hook (spec: 300ms)
-  const { debouncedSetPan, debouncedSetScale } = useZoomPan();
+  // Use direct setters from context for viewport updates
 
   // Update aria-live message on viewport changes
   useEffect(() => {
@@ -71,6 +63,27 @@ export default function Timeline({ domain }) {
     const p = Math.round(((viewport?.pan ?? 0) + 0) * 100);
     setLiveMsg(`Zoom ${s}x, Pan ${p}%`);
   }, [viewport?.scale, viewport?.pan]);
+
+  // Auto-scroll into view: center the selected event by adjusting pan
+  useEffect(() => {
+    if (!selected) return;
+    const yf = toYearFraction(selected.start);
+    if (yf == null) return;
+    const u = scaler.toUnit(yf);
+    const S = Math.max(0.1, viewport?.scale ?? 1);
+    if (S <= 1) {
+      // No panning necessary when content fits
+      return;
+    }
+    const bound = (S - 1) / (2 * S);
+    // To center u at 0.5 after scaling, solve: 0.5 = (u - 0.5)*S + 0.5 + P => P = - (u - 0.5)*S
+    const desired = - (u - 0.5) * S;
+    const clamped = Math.max(-bound, Math.min(bound, desired));
+    // Only update if pan meaningfully changes to avoid loops
+    if (Math.abs((viewport?.pan ?? 0) - clamped) > 1e-4) {
+      setPan(clamped);
+    }
+  }, [selected?.id]);
 
   const onMouseDown = useCallback((e) => {
     if (!containerRef.current) return;
@@ -85,141 +98,125 @@ export default function Timeline({ domain }) {
     const dx = e.clientX - dragState.current.startX;
     const unitDelta = dx / rect.width; // convert px to unit [0..1]
     const nextPan = clampPan(dragState.current.startPan + unitDelta, viewport?.scale ?? 1);
-    debouncedSetPan(nextPan);
+    pendingPanRef.current = nextPan;
+    if (!rafRef.current) {
+      rafRef.current = requestAnimationFrame(() => {
+        if (pendingPanRef.current != null) setPan(pendingPanRef.current);
+        rafRef.current = null;
+      });
+    }
   }, [dragging, setPan, viewport?.scale]);
 
   const endDrag = useCallback(() => setDragging(false), []);
 
   const onWheel = useCallback((e) => {
     if (!containerRef.current) return;
+    // Prevent page from scrolling while zooming the timeline
+    e.preventDefault();
     const current = viewport?.scale ?? 1;
     // Zoom factor; trackpad-friendly small increments
     const delta = -e.deltaY; // invert: wheel up -> zoom in
     const factor = 1 + clamp(delta / 1000, -0.25, 0.25);
-    const next = clamp(current * factor, 0.1, 5);
-    debouncedSetScale(next);
-  }, [viewport?.scale, debouncedSetScale]);
-
-  // Touch handlers
-  const getDistance = (t1, t2) => {
-    const dx = t2.clientX - t1.clientX;
-    const dy = t2.clientY - t1.clientY;
-    return Math.hypot(dx, dy);
-  };
-
-  const onTouchStart = useCallback((e) => {
-    if (!containerRef.current) return;
-    if (e.touches.length === 1) {
-      const t = e.touches[0];
-      touchState.current.mode = 'pan';
-      touchState.current.startX = t.clientX;
-      touchState.current.startPan = viewport?.pan ?? 0;
-    } else if (e.touches.length >= 2) {
-      const d = getDistance(e.touches[0], e.touches[1]);
-      touchState.current.mode = 'pinch';
-      touchState.current.startDist = d || 1;
-      touchState.current.startScale = viewport?.scale ?? 1;
-    }
-  }, [viewport?.pan, viewport?.scale]);
-
-  const onTouchMove = useCallback((e) => {
-    if (!containerRef.current) return;
-    if (touchState.current.mode === 'pan' && e.touches.length === 1) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const dx = e.touches[0].clientX - touchState.current.startX;
-      const unitDelta = dx / rect.width;
-      debouncedSetPan(clampPan(touchState.current.startPan + unitDelta, viewport?.scale ?? 1));
-    } else if (touchState.current.mode === 'pinch' && e.touches.length >= 2) {
-      const d = getDistance(e.touches[0], e.touches[1]) || 1;
-      const factor = d / (touchState.current.startDist || 1);
-      const next = clamp(touchState.current.startScale * factor, 0.1, 5);
-      debouncedSetScale(next);
-    }
-  }, [debouncedSetPan, debouncedSetScale, viewport?.scale]);
-
-  const onTouchEnd = useCallback(() => {
-    touchState.current.mode = 'none';
-  }, []);
-
-  // Keyboard accessibility: arrows to pan, +/- to zoom, 0/Home to reset
-  const onKeyDown = useCallback((e) => {
-    const key = e.key;
-    const stepPan = 0.05;
-    const factorIn = 1.1;
-    const factorOut = 1 / factorIn;
-    if (key === 'ArrowLeft') {
-      e.preventDefault();
-      debouncedSetPan(clampPan((viewport?.pan ?? 0) - stepPan, viewport?.scale ?? 1));
-    } else if (key === 'ArrowRight') {
-      e.preventDefault();
-      debouncedSetPan(clampPan((viewport?.pan ?? 0) + stepPan, viewport?.scale ?? 1));
-    } else if (key === '+' || key === '=') {
-      e.preventDefault();
-      debouncedSetScale(clamp((viewport?.scale ?? 1) * factorIn, 0.1, 5));
-    } else if (key === '-' || key === '_') {
-      e.preventDefault();
-      debouncedSetScale(clamp((viewport?.scale ?? 1) * factorOut, 0.1, 5));
-    } else if (key === '0' || key === 'Home') {
-      e.preventDefault();
-      debouncedSetPan(0);
-      debouncedSetScale(1);
-    }
-  }, [viewport?.pan, viewport?.scale, debouncedSetPan, debouncedSetScale]);
-
-  // Memoized legend for types
-  const typeLegend = useMemo(() => ({
-    history: { key: 'rose', dot: 'bg-rose-600', border: 'rose' },
-    personal: { key: 'emerald', dot: 'bg-emerald-600', border: 'emerald' },
-    science: { key: 'blue', dot: 'bg-blue-600', border: 'blue' },
-    culture: { key: 'violet', dot: 'bg-violet-600', border: 'violet' },
-    tech: { key: 'amber', dot: 'bg-amber-500', border: 'amber' },
-    other: { key: 'slate', dot: 'bg-slate-600', border: 'slate' },
-  }), []);
-
-  // Memoized helper: partial date to fractional year
-  const toYearFraction = useCallback((d = {}) => {
-    const y = Number(d.year);
-    if (!Number.isFinite(y)) return null;
-    const m = Number(d.month || 0);
-    const day = Number(d.day || 0);
-    const hr = Number(d.hour || 0);
-    const min = Number(d.minute || 0);
-    const monthFrac = m > 0 ? (m - 1) / 12 : 0;
-    const dayFrac = day > 0 ? (day - 1) / 365 : 0;
-    const timeFrac = (hr / 24 + min / (24 * 60)) / 365;
-    return y + monthFrac + dayFrac + timeFrac;
-  }, []);
-
-  // Memoized groups preparation
-  const groups = useMemo(() => {
-    const pan = viewport?.pan ?? 0;
-    return clusters.map(({ key, items }) => {
-      const assign = new Map((stacks.get(key) || []).map(a => [a.id, a]));
-      const first = items[0];
-      const yf = toYearFraction(first.start);
-      if (yf == null) return null;
-      const u = scaler.toUnit(yf);
-      const uScaled = (u - 0.5) * (viewport?.scale ?? 1) + 0.5 + pan;
-      const posPct = Math.max(0, Math.min(100, uScaled * 100));
-
-      const rendered = items.map((e) => {
-        const a = assign.get(e.id) || { side: 'above', level: 0 };
-        const colorKey = typeLegend[e.type]?.key || 'slate';
-        const dotClass = typeLegend[e.type]?.dot || 'bg-slate-600';
-        const type = e.type || 'other';
-        const active = typeFilter[type] !== false; // default true
-        const yfEnd = e.end ? toYearFraction(e.end) : null;
-        let endLeft = null;
-        if (yfEnd != null) {
-          const ue = scaler.toUnit(yfEnd);
-          const ueScaled = (ue - 0.5) * (viewport?.scale ?? 1) + 0.5 + pan;
-          endLeft = Math.max(0, Math.min(100, ueScaled * 100));
-        }
-        return { e, yf, posPct, endLeft, color: colorKey, dotClass, active, side: a.side, level: a.level };
+    const raw = clamp(current * factor, 0.1, 5);
+    const next = snapScale(raw);
+    // rAF throttle scale updates too
+    if (!rafRef.current) {
+      const nextScale = next;
+      rafRef.current = requestAnimationFrame(() => {
+        setScale(nextScale);
+        // Also clamp current pan to the new scale bounds
+        const curPan = viewport?.pan ?? 0;
+        const clamped = clampPan(curPan, nextScale);
+        if (clamped !== curPan) setPan(clamped);
+        rafRef.current = null;
       });
-      return { key, posPct, items: rendered };
+    } else {
+      setScale(next);
+      // Clamp pan immediately when coalescing wheel events
+      const curPan = viewport?.pan ?? 0;
+      const clamped = clampPan(curPan, next);
+      if (clamped !== curPan) setPan(clamped);
+    }
+  }, [viewport?.scale, viewport?.pan, setScale, setPan]);
+
+  // typeLegend and toYearFraction are imported from utils
+
+  // Prepare flat list of positioned items with virtualization and (low-zoom) clustering
+  const items = useMemo(() => {
+    const pan = viewport?.pan ?? 0;
+    const scale = viewport?.scale ?? 1;
+    const buffer = 0.1; // 10% outside viewport
+    const raw = (sortedEvents || []).map((e, idx) => {
+      const yf = toYearFraction(e.start);
+      if (yf == null) return null;
+      const outStart = yf < domain[0] || yf > domain[1];
+      const u = scaler.toUnit(yf);
+      const uScaled = (u - 0.5) * scale + 0.5 + pan;
+      if (uScaled < -buffer || uScaled > 1 + buffer) return null; // virtualization window
+      const posPct = Math.max(0, Math.min(100, uScaled * 100));
+      const yfEnd = e.end ? toYearFraction(e.end) : null;
+      let endPos = null;
+      let outEnd = false;
+      if (yfEnd != null) {
+        outEnd = yfEnd < domain[0] || yfEnd > domain[1];
+        const ue = scaler.toUnit(yfEnd);
+        const ueScaled = (ue - 0.5) * scale + 0.5 + pan;
+        endPos = Math.max(0, Math.min(100, ueScaled * 100));
+      }
+      const side = idx % 2 === 0 ? 'above' : 'below';
+      const level = idx % 4;
+      const colorKey = typeLegend[e.type]?.key || 'slate';
+      const dotClass = typeLegend[e.type]?.dot || 'bg-slate-600';
+      const outOfDomain = outStart || outEnd;
+      const laneIndex = typeOrder.get(e?.type || 'other') || 0;
+      return { e, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain, laneIndex };
     }).filter(Boolean);
-  }, [clusters, stacks, scaler, viewport?.scale, viewport?.pan, typeFilter, toYearFraction, typeLegend]);
+
+    // At low zoom, cluster dense points to reduce overdraw
+    if (scale < 1.2 && raw.length > 50) {
+      const clusters = clusterByPosition(
+        raw.map(it => ({ key: it.e.id, uScaled: it.uScaled, data: it })),
+        0.02,
+        { edgePad: 0.02 }
+      );
+      const merged = [];
+      for (const c of clusters) {
+        if (c.count >= 4) {
+          const centerU = clamp(c.bucket, 0, 1);
+          const posPct = centerU * 100;
+          merged.push({ cluster: true, count: c.count, uScaled: centerU, posPct });
+        } else {
+          for (const it of c.items) merged.push(it.data);
+        }
+      }
+      return merged;
+    }
+    // Same-time stacking with overflow within tiny buckets
+    const epsilon = 0.4; // percent gap to consider same position
+    const maxPerGroup = 4;
+    const byPos = [];
+    const sorted = [...raw].sort((a, b) => a.posPct - b.posPct);
+    let i = 0;
+    while (i < sorted.length) {
+      const start = sorted[i].posPct;
+      const group = [];
+      while (i < sorted.length && Math.abs(sorted[i].posPct - start) <= epsilon) {
+        group.push(sorted[i]);
+        i++;
+      }
+      // assign levels cyclically
+      group.forEach((it, idx) => { it.level = idx % 4; });
+      if (group.length > maxPerGroup) {
+        const visible = group.slice(0, maxPerGroup);
+        const hiddenCount = group.length - maxPerGroup;
+        byPos.push(...visible);
+        byPos.push({ overflow: true, count: hiddenCount, posPct: start, uScaled: visible[0].uScaled });
+      } else {
+        byPos.push(...group);
+      }
+    }
+    return byPos;
+  }, [sortedEvents, scaler, viewport?.scale, viewport?.pan, typeOrder]);
 
   // Memoized center offset function
   const stackOffset = useCallback((side, level) => {
@@ -231,77 +228,264 @@ export default function Timeline({ domain }) {
     return side === 'above' ? center - offset : center + (level * levelGap) + 10;
   }, [isVertical]);
 
-  // Memoized virtualization list
-  const virtualGroups = useMemo(() => (
-    groups.length > 100 ? groups.filter(g => g.posPct > -20 && g.posPct < 120) : groups
-  ), [groups]);
+  const laneCenter = useCallback((laneIndex) => {
+    const isV = isVertical;
+    const extent = isV ? (containerRef.current?.clientWidth || 600) : (containerRef.current?.clientHeight || 256);
+    const laneCount = Math.max(1, typeOrder.size || 1);
+    if (laneCount <= 1) return Math.floor(extent / 2);
+    const margin = 24;
+    const usable = Math.max(0, extent - margin * 2);
+    const gap = laneCount > 1 ? (usable / (laneCount - 1)) : 0;
+    return Math.round(margin + Math.min(laneIndex, laneCount - 1) * gap);
+  }, [isVertical, typeOrder]);
 
   return (
-    <div className="w-full">
+    <div className="w-full h-full flex flex-col">
       <div aria-live="polite" className="sr-only">{liveMsg}</div>
       <TimelineAxis domain={domain} orientation={isVertical ? 'vertical' : 'horizontal'} />
       <div
         ref={containerRef}
-        className={`h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none touch-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
+        className={`flex-1 min-h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none touch-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
+        onKeyDown={(e) => {
+          const scale = viewport?.scale ?? 1;
+          let p = viewport?.pan ?? 0;
+          const step = 0.02;
+          // Keyboard panning
+          if (e.key === 'ArrowLeft' || (isVertical && e.key === 'ArrowUp')) { p = clampPan(p - step, scale); setPan(p); e.preventDefault(); }
+          if (e.key === 'ArrowRight' || (isVertical && e.key === 'ArrowDown')) { p = clampPan(p + step, scale); setPan(p); e.preventDefault(); }
+        }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
         onWheel={onWheel}
-        onKeyDown={onKeyDown}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchEnd}
+        onTouchStart={(e) => {
+          if (e.touches.length === 2) {
+            const [a, b] = [e.touches[0], e.touches[1]];
+            const dx = a.clientX - b.clientX;
+            const dy = a.clientY - b.clientY;
+            pinchRef.current = { active: true, startDist: Math.hypot(dx, dy), startScale: viewport?.scale ?? 1 };
+          }
+        }}
+        onTouchMove={(e) => {
+          if (pinchRef.current.active && e.touches.length === 2) {
+            e.preventDefault();
+            const [a, b] = [e.touches[0], e.touches[1]];
+            const dx = a.clientX - b.clientX;
+            const dy = a.clientY - b.clientY;
+            const dist = Math.hypot(dx, dy);
+            const factor = dist / (pinchRef.current.startDist || dist || 1);
+            const raw = clamp((pinchRef.current.startScale || 1) * factor, 0.1, 5);
+            const next = snapScale(raw);
+            setScale(next);
+            // Ensure current pan remains valid under the new scale
+            const curPan = viewport?.pan ?? 0;
+            const clamped = clampPan(curPan, next);
+            if (clamped !== curPan) setPan(clamped);
+          }
+        }}
+        onTouchEnd={() => { pinchRef.current = { active: false, startDist: 0, startScale: 1 }; }}
       >
         <div className="relative w-full h-full" role="list" aria-label="Timeline events">
-          <TimelineGroups
-            groups={virtualGroups}
-            isVertical={isVertical}
-            stackOffset={stackOffset}
-            overflowOpenKey={overflowOpenKey}
-            setOverflowOpenKey={setOverflowOpenKey}
-            onSelect={setSelected}
-            setOpenEdit={setOpenEdit}
-            typeLegend={typeLegend}
-          />
+          {items.map((it, idx) => {
+            if (it.cluster) {
+              const posStyle = isVertical ? { top: `${it.posPct}%`, left: (containerRef.current?.clientWidth || 600) / 2 } : { left: `${it.posPct}%`, top: (containerRef.current?.clientHeight || 256) / 2 };
+              return (
+                <div key={`cluster-${idx}`} className="absolute -translate-x-1/2 -translate-y-1/2" style={posStyle}>
+                  <button
+                    type="button"
+                    className="px-2 py-1 rounded-full text-xs bg-slate-800 text-white shadow"
+                    title={`${it.count} events`}
+                    onClick={() => {
+                      // Zoom in and center on cluster
+                      const next = snapScale((viewport?.scale ?? 1) * 1.5);
+                      setScale(next);
+                      const centerU = clamp(it.uScaled, 0, 1);
+                      const currentScale = next;
+                      const bound = (currentScale - 1) / (2 * currentScale);
+                      // Centering formula derived from uScaled = (u - 0.5) * S + 0.5 + P => P = - (u - 0.5) * S
+                      const desiredPan = clamp(-(centerU - 0.5) * currentScale, -bound, bound);
+                      setPan(desiredPan);
+                    }}
+                  >
+                    +{it.count}
+                  </button>
+                </div>
+              );
+            }
+            if (it.overflow) {
+              const posStyle = isVertical ? { top: `${it.posPct}%`, left: (containerRef.current?.clientWidth || 600) / 2 } : { left: `${it.posPct}%`, top: (containerRef.current?.clientHeight || 256) / 2 };
+              return (
+                <div key={`overflow-${idx}`} className="absolute -translate-x-1/2 -translate-y-1/2" style={posStyle}>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-200 text-xs text-slate-700 shadow">+{it.count}</span>
+                </div>
+              );
+            }
+            const { e, posPct, endPos, dotClass, side, level, outOfDomain, laneIndex } = it;
+            const scaleVal = viewport?.scale ?? 1;
+            // Edge-aware alignment to avoid clipping near boundaries
+            const innerTransform = (() => {
+              if (isVertical) {
+                if (posPct < 1) return 'translateY(0)';
+                if (posPct > 99) return 'translateY(-100%)';
+                return 'translateY(-50%)';
+              } else {
+                if (posPct < 1) return 'translateX(0)';
+                if (posPct > 99) return 'translateX(-100%)';
+                return 'translateX(-50%)';
+              }
+            })();
+            // Compute end-dot inner transform similarly
+            const endInnerTransform = (() => {
+              if (!Number.isFinite(endPos)) return 'translate(-50%, -50%)';
+              if (isVertical) {
+                if (endPos < 1) return 'translateY(0)';
+                if (endPos > 99) return 'translateY(-100%)';
+                return 'translateY(-50%)';
+              } else {
+                if (endPos < 1) return 'translateX(0)';
+                if (endPos > 99) return 'translateX(-100%)';
+                return 'translateX(-50%)';
+              }
+            })();
+            return (
+              <Fragment key={`it-${e.id}`}>
+                <div key={e.id} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={
+                  isVertical
+                    ? { top: `${posPct}%`, left: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
+                    : { left: `${posPct}%`, top: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
+                } role="listitem">
+              {/* Duration span (if any) - Adaptive rendering by zoom */}
+              {Number.isFinite(endPos) && scaleVal >= 1.5 && (
+                <div
+                  className="absolute rounded"
+                  style={{
+                    ...(isVertical
+                      ? {
+                          top: `${Math.min(posPct, endPos)}%`,
+                          height: `${Math.abs((endPos ?? posPct) - posPct)}%`,
+                          left: `${lanesByType ? laneCenter(laneIndex) : stackOffset(side, level)}px`,
+                          width: '3px',
+                          minHeight: '3px',
+                        }
+                      : {
+                          left: `${Math.min(posPct, endPos)}%`,
+                          width: `${Math.max(3, Math.abs((endPos ?? posPct) - posPct))}%`,
+                          top: '5px',
+                          height: '3px',
+                          minWidth: '3px',
+                        }
+                    ),
+                    backgroundColor: dotClass.includes('rose') ? '#e11d48' : dotClass.includes('emerald') ? '#059669' : dotClass.includes('blue') ? '#2563eb' : dotClass.includes('violet') ? '#7c3aed' : dotClass.includes('amber') ? '#f59e0b' : '#334155',
+                  }}
+                />
+              )}
+              {/* Mid zoom: thin duration bars */}
+              {Number.isFinite(endPos) && scaleVal >= 0.8 && scaleVal < 1.5 && (
+                <div
+                  className="absolute rounded"
+                  style={{
+                    ...(isVertical
+                      ? {
+                          top: `${Math.min(posPct, endPos)}%`,
+                          height: `${Math.abs((endPos ?? posPct) - posPct)}%`,
+                          left: `${lanesByType ? laneCenter(laneIndex) : stackOffset(side, level)}px`,
+                          width: '2px',
+                          minHeight: '2px',
+                        }
+                      : {
+                          left: `${Math.min(posPct, endPos)}%`,
+                          width: `${Math.max(2, Math.abs((endPos ?? posPct) - posPct))}%`,
+                          top: '6px',
+                          height: '2px',
+                          minWidth: '2px',
+                        }
+                    ),
+                    backgroundColor: dotClass.includes('rose') ? '#e11d48' : dotClass.includes('emerald') ? '#059669' : dotClass.includes('blue') ? '#2563eb' : dotClass.includes('violet') ? '#7c3aed' : dotClass.includes('amber') ? '#f59e0b' : '#334155',
+                  }}
+                />
+              )}
+              {/* Far zoom: faint connectors */}
+              {Number.isFinite(endPos) && scaleVal < 0.8 && (
+                <div
+                  className="absolute opacity-30"
+                  style={{
+                    ...(isVertical
+                      ? {
+                          top: `${Math.min(posPct, endPos)}%`,
+                          height: `${Math.max(1, Math.abs((endPos ?? posPct) - posPct))}%`,
+                          left: `${lanesByType ? laneCenter(laneIndex) : stackOffset(side, level)}px`,
+                          width: '1px',
+                          minHeight: '1px',
+                        }
+                      : {
+                          left: `${Math.min(posPct, endPos)}%`,
+                          width: `${Math.max(1, Math.abs((endPos ?? posPct) - posPct))}%`,
+                          top: '7px',
+                          height: '1px',
+                          minWidth: '1px',
+                        }
+                    ),
+                    backgroundColor: '#94a3b8',
+                  }}
+                />
+              )}
+              <div className="relative" style={{ transform: innerTransform }}>
+                {/* Adaptive dot rendering by zoom level */}
+                <button
+                  type="button"
+                  className={`${
+                    scaleVal >= 1.5 ? 'w-3 h-3' : 
+                    scaleVal >= 0.8 ? 'w-2 h-2' : 
+                    'w-1.5 h-1.5'
+                  } rounded-full shadow mx-auto ${dotClass} ${selected?.id === e.id ? 'ring-2 ring-offset-2 ring-emerald-500' : ''} ${outOfDomain ? 'opacity-60 outline outline-1 outline-slate-400' : ''}`}
+                  aria-label={`${e.title} (${e.start?.year || ''})${outOfDomain ? ' (out of domain)' : ''}`}
+                  onClick={() => { setSelected(e); setOpenEdit(true); }}
+                  title={`${e.title} (${e.start?.year || ''})${outOfDomain ? ' • out of domain' : ''}`}
+                />
+                {/* Close zoom: inline labels with resize handles */}
+                {scaleVal >= 1.5 && (
+                  <div className="mt-1" onClick={() => { setSelected(e); setOpenEdit(true); }}>
+                    <div className="text-[10px] text-slate-700 whitespace-nowrap max-w-[160px] truncate" title={`${e.title}${outOfDomain ? ' • out of domain' : ''}`}>
+                      {e.title}{outOfDomain ? ' •' : ''}
+                    </div>
+                    {Number.isFinite(endPos) && (
+                      <div className="flex gap-1 mt-1">
+                        <div className="w-1 h-1 bg-slate-400 rounded-full cursor-ew-resize" title="Resize start" />
+                        <div className="w-1 h-1 bg-slate-400 rounded-full cursor-ew-resize" title="Resize end" />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Mid zoom: tooltips only (handled by title attribute) */}
+              </div>
+                </div>
+                {/* Far zoom: render an end dot as well (two dots + connector) */}
+                {Number.isFinite(endPos) && scaleVal < 0.8 && (
+                  <div key={`${e.id}-end`} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={
+                    isVertical
+                      ? { top: `${endPos}%`, left: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
+                      : { left: `${endPos}%`, top: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
+                  }>
+                    <div className="relative" style={{ transform: endInnerTransform }}>
+                      <button
+                        type="button"
+                        className={`${scaleVal >= 1.5 ? 'w-3 h-3' : scaleVal >= 0.8 ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-full shadow mx-auto ${dotClass} ${selected?.id === e.id ? 'ring-2 ring-offset-2 ring-emerald-500' : ''} ${outOfDomain ? 'opacity-60 outline outline-1 outline-slate-400' : ''}`}
+                        aria-label={`${e.title} end (${e.end?.year || ''})${outOfDomain ? ' (out of domain)' : ''}`}
+                        onClick={() => { setSelected(e); setOpenEdit(true); }}
+                        title={`${e.title} end (${e.end?.year || ''})${outOfDomain ? ' • out of domain' : ''}`}
+                      />
+                    </div>
+                  </div>
+                )}
+              </Fragment>
+            );})}
         </div>
       </div>
-      {events.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
-          {(() => {
-            const types = availableTypes;
-            const legend = {
-              history: { label: 'History', dot: 'bg-rose-600' },
-              personal: { label: 'Personal', dot: 'bg-emerald-600' },
-              science: { label: 'Science', dot: 'bg-blue-600' },
-              culture: { label: 'Culture', dot: 'bg-violet-600' },
-              tech: { label: 'Tech', dot: 'bg-amber-500' },
-              other: { label: 'Other', dot: 'bg-slate-600' },
-            };
-            return (
-              <>
-                {types.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => toggleType(t)}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${typeFilter[t] !== false ? 'bg-white border-slate-300' : 'bg-slate-100 border-slate-200 opacity-60'}`}
-                    aria-pressed={typeFilter[t] !== false}
-                  >
-                    <span className={`inline-block w-2 h-2 rounded-full ${legend[t]?.dot || 'bg-slate-600'}`} />
-                    <span>{legend[t]?.label || 'Other'}</span>
-                  </button>
-                ))}
-              </>
-            );
-          })()}
-        </div>
-      )}
-      <EventDialog open={openEdit} onClose={() => setOpenEdit(false)} event={selected} />
+      <EventDialog open={openEdit} onClose={() => setOpenEdit(false)} event={selected} closeOnSave />
     </div>
   );
 }
