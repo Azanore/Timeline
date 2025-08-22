@@ -10,27 +10,25 @@ import EventCard from '../events/EventCard.jsx';
 /**
  * @typedef {Object} TimelineProps
  * @property {[number, number]} domain - Inclusive time domain [minYear, maxYear]
- * @property {'horizontal'|'vertical'} [orientationOverride] - Optional manual orientation
  */
 
 /**
  * Timeline container: orchestrates axis, events, and interactions.
  * @param {TimelineProps} props
  */
-export default function Timeline({ domain, orientationOverride, lanesByType = false }) {
+export default function Timeline({ domain, lanesByType = false }) {
   const containerRef = useRef(null);
   const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const [dragging, setDragging] = useState(false);
   const dragState = useRef({ startX: 0, startPan: 0 });
   const rafRef = useRef(null);
   const pendingPanRef = useRef(null);
-  const pinchRef = useRef({ active: false, startDist: 0, startScale: 1 });
   const { sortedEvents } = useEvents();
   const scaler = useMemo(() => buildLinearScaler(domain), [domain]);
   const [openEdit, setOpenEdit] = useState(false);
   const [selected, setSelected] = useState(null);
   const [liveMsg, setLiveMsg] = useState('');
-  const [isVertical, setIsVertical] = useState(false);
+  const isVertical = false; // Force horizontal layout only
 
   // Build stable lane order by type
   const typeOrder = useMemo(() => {
@@ -42,20 +40,7 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
     return map;
   }, [sortedEvents]);
 
-  // Orientation: optional manual override; else responsive
-  useEffect(() => {
-    if (orientationOverride === 'horizontal' || orientationOverride === 'vertical') {
-      setIsVertical(orientationOverride === 'vertical');
-      return;
-    }
-    const mq = window.matchMedia(`(max-width: ${CONFIG.ui.breakpointSmPx}px)`);
-    const onChange = () => setIsVertical(mq.matches);
-    onChange();
-    mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
-    return () => {
-      mq.removeEventListener ? mq.removeEventListener('change', onChange) : mq.removeListener(onChange);
-    };
-  }, [orientationOverride]);
+  // Orientation responsiveness removed: always horizontal
 
   // Use direct setters from context for viewport updates
 
@@ -258,10 +243,10 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
   return (
     <div className="w-full h-full flex flex-col">
       <div aria-live="polite" className="sr-only">{liveMsg}</div>
-      <TimelineAxis domain={domain} orientation={isVertical ? 'vertical' : 'horizontal'} />
+      <TimelineAxis domain={domain} />
       <div
         ref={containerRef}
-        className={`flex-1 min-h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none touch-none focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-hidden`}
+        className={`flex-1 min-h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-hidden`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
@@ -277,36 +262,6 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
         onMouseMove={onMouseMove}
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
-        onTouchStart={(e) => {
-          if (e.touches.length === 2) {
-            const [a, b] = [e.touches[0], e.touches[1]];
-            const dx = a.clientX - b.clientX;
-            const dy = a.clientY - b.clientY;
-            pinchRef.current = { active: true, startDist: Math.hypot(dx, dy), startScale: viewport?.scale ?? 1 };
-          }
-        }}
-        onTouchMove={(e) => {
-          if (pinchRef.current.active && e.touches.length === 2) {
-            const [a, b] = [e.touches[0], e.touches[1]];
-            const dx = a.clientX - b.clientX;
-            const dy = a.clientY - b.clientY;
-            const dist = Math.hypot(dx, dy);
-            const factor = dist / (pinchRef.current.startDist || dist || 1);
-            const raw = clamp((pinchRef.current.startScale || 1) * factor, 0.1, 5);
-            const next = snapScale(raw);
-            // Anchor zoom at touch centroid
-            const rect = containerRef.current.getBoundingClientRect();
-            const cx = ((a.clientX + b.clientX) / 2 - rect.left) / rect.width; // 0..1
-            const S = viewport?.scale ?? 1;
-            const P = viewport?.pan ?? 0;
-            const ratio = S === 0 ? 1 : (next / S);
-            let Pnext = (cx - 0.5) - (cx - 0.5 - P) * ratio;
-            Pnext = clampPan(Pnext, next);
-            setScale(next);
-            setPan(Pnext);
-          }
-        }}
-        onTouchEnd={() => { pinchRef.current = { active: false, startDist: 0, startScale: 1 }; }}
       >
         <div className="relative w-full h-full" role="list" aria-label="Timeline events">
           {items.map((it, idx) => {

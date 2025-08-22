@@ -18,14 +18,6 @@ export function useTimeline() {
     const pad = Math.max(1, Math.round((max - min) * ratio));
     return [min - pad, max + pad];
   }, [events]);
-
-  // Orientation: vertical on small screens
-  const [orientation, setOrientation] = useState(() => (typeof window !== 'undefined' && window.innerWidth < (CONFIG.ui.breakpointSmPx + 1) ? 'vertical' : 'horizontal'));
-  useEffect(() => {
-    const onResize = () => setOrientation(window.innerWidth < (CONFIG.ui.breakpointSmPx + 1) ? 'vertical' : 'horizontal');
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
   if (!ctx) {
     return {
       activeTimelineId: 'default',
@@ -34,9 +26,8 @@ export function useTimeline() {
       createTimeline: () => 'default',
       deleteTimeline: () => {},
       domain,
-      orientation,
     };
   }
   const { activeTimelineId, timelines, setActiveTimeline, createTimeline, deleteTimeline } = ctx;
-  return { activeTimelineId, timelines, setActiveTimeline, createTimeline, deleteTimeline, domain, orientation };
+  return { activeTimelineId, timelines, setActiveTimeline, createTimeline, deleteTimeline, domain };
 }

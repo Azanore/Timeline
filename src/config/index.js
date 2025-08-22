@@ -21,9 +21,6 @@ const CONFIG = {
     appKey: 'timeline_app',
     debounceMs: 300,
   },
-  ui: {
-    breakpointSmPx: 767, // <= this width -> vertical layout
-  },
   zoom: {
     scaleMin: 0.1,
     scaleMax: 5,

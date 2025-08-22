@@ -6,13 +6,12 @@ import CONFIG from '../../config/index.js';
 /**
  * @typedef {Object} TimelineAxisProps
  * @property {[number, number]} [domain]
- * @property {'horizontal'|'vertical'} [orientation]
  */
 
 /**
  * @param {TimelineAxisProps} props
  */
-export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain, orientation = 'horizontal' }) {
+export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
   const { viewport } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const scale = viewport?.scale ?? 1;
   const pan = viewport?.pan ?? 0; // unit offset (-1..1) applied across width
@@ -99,57 +98,7 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain, orien
     return items;
   }, [tickCfg.unit, tickCfg.step, visibleRange]);
 
-  if (orientation === 'vertical') {
-    return (
-      <div className="w-16 h-full relative">
-        <div className="absolute inset-y-0 left-8 border-l border-slate-300" />
-        {markers.map((y) => {
-          const u = scaler.toUnit(y);
-          const uScaled = (u - 0.5) * scale + 0.5 + pan; // scale around center, then pan
-          const top = Math.max(0, Math.min(100, (1 - uScaled) * 100));
-          return (
-            <div
-              key={y}
-              className="absolute left-6 text-[11px] text-slate-600 select-none"
-              style={{ top: `${top}%`, transform: 'translateY(-50%)' }}
-            >
-              <div className="h-px w-3 bg-slate-400 my-auto" />
-              <div className="mt-1 tabular-nums">{formatUTCYear(y)}</div>
-            </div>
-          );
-        })}
-        {fineTicks.map((it) => {
-          const u = scaler.toUnit(it.yf);
-          const uScaled = (u - 0.5) * scale + 0.5 + pan;
-          const top = Math.max(0, Math.min(100, (1 - uScaled) * 100));
-          const isMajor = (it.type === 'month' && it.m === 1) || (it.type === 'day' && it.d === 1) || (it.type === 'hour' && it.h === 0);
-          const label = (() => {
-            if (!tickCfg.showLabels) return '';
-            if (it.type === 'month') return `${formatUTCMonthShort(it.y, it.m)}${isMajor ? ' ' + formatUTCYear(it.y) : ''}`;
-            if (it.type === 'day') {
-              try {
-                const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
-                const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-                return (isMajor ? fmt.format(d) + ' ' + formatUTCYear(it.y) : fmt.format(d));
-              } catch { return `${it.d}`; }
-            }
-            if (it.type === 'hour') return `${String(it.h).padStart(2, '0')}:00`;
-            return '';
-          })();
-          return (
-            <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}`} className="absolute left-8 select-none" style={{ top: `${top}%`, transform: 'translateY(-50%)' }}>
-              <div className={`${isMajor ? 'h-px bg-slate-400 w-3' : 'h-px bg-slate-300/80 w-2' }`} />
-              {label && (
-                <div className="ml-1 text-[10px] text-slate-500 tabular-nums">{label}</div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  // Horizontal (default)
+  // Horizontal only
   return (
     <div className="w-full h-16 relative">
       <div className="absolute inset-x-0 top-8 border-t border-slate-300" />
