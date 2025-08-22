@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { formatPartialUTC, typeLegend } from '../../utils';
+import { formatPartialUTC } from '../../utils';
+import CONFIG from '../../config/index.js';
 
 /**
  * @typedef {Object} EventCardProps
@@ -17,7 +18,7 @@ export default function EventCard({ event, scale, selected = false, onClick }) {
   const tier = scale >= 1.5 ? 'max' : scale >= 0.8 ? 'mid' : 'min';
 
   const borderColorClass = useMemo(() => {
-    const key = typeLegend[event?.type || 'other']?.border || 'slate';
+    const key = CONFIG.types[event?.type || 'other']?.border || 'slate';
     // Map type key to Tailwind border color classes
     const map = {
       rose: 'border-rose-400',
@@ -31,7 +32,7 @@ export default function EventCard({ event, scale, selected = false, onClick }) {
   }, [event?.type]);
 
   const dotBgClass = useMemo(() => {
-    return typeLegend[event?.type || 'other']?.dot || 'bg-slate-600';
+    return CONFIG.types[event?.type || 'other']?.dot || 'bg-slate-600';
   }, [event?.type]);
 
   const dateText = useMemo(() => {

@@ -1,7 +1,8 @@
 import { useContext, useRef, useState, useCallback, useMemo, useEffect, Fragment } from 'react';
 import TimelineAxis from './TimelineAxis.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { clamp, buildLinearScaler, clampPan, toYearFraction, typeLegend, snapScale, clusterByPosition } from '../../utils';
+import { clamp, buildLinearScaler, clampPan, toYearFraction, snapScale, clusterByPosition } from '../../utils';
+import CONFIG from '../../config/index.js';
 import { useEvents } from '../../hooks/useEvents';
 import EventDialog from '../events/EventDialog.jsx';
 import EventCard from '../events/EventCard.jsx';
@@ -47,7 +48,7 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
       setIsVertical(orientationOverride === 'vertical');
       return;
     }
-    const mq = window.matchMedia('(max-width: 767px)');
+    const mq = window.matchMedia(`(max-width: ${CONFIG.ui.breakpointSmPx}px)`);
     const onChange = () => setIsVertical(mq.matches);
     onChange();
     mq.addEventListener ? mq.addEventListener('change', onChange) : mq.addListener(onChange);
@@ -118,9 +119,9 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
     const P = viewport?.pan ?? 0;
     // Zoom factor; trackpad-friendly small increments
     const delta = -e.deltaY; // invert: wheel up -> zoom in
-    const factor = 1 + clamp(delta / 1000, -0.25, 0.25);
+    const factor = 1 + clamp(delta / 1000, -CONFIG.zoom.wheelDeltaClampPer1000, CONFIG.zoom.wheelDeltaClampPer1000);
     // Important: do not snap on wheel, or we get stuck at 0.5 with tiny deltas
-    const Snext = clamp(S * factor, 0.1, 5);
+    const Snext = clamp(S * factor, CONFIG.zoom.scaleMin, CONFIG.zoom.scaleMax);
     // Keep the point under cursor stationary after zoom
     // Derived from uScaled = (u - 0.5)*S + 0.5 + P, with u = x kept fixed on screen
     const ratio = S === 0 ? 1 : (Snext / S);
@@ -154,13 +155,13 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
     // Depend on onWheel so logic stays up to date
   }, [onWheel]);
 
-  // typeLegend and toYearFraction are imported from utils
+  // Colors/types now sourced from CONFIG.types; toYearFraction from utils
 
   // Prepare flat list of positioned items with virtualization and (low-zoom) clustering
   const items = useMemo(() => {
     const pan = viewport?.pan ?? 0;
     const scale = viewport?.scale ?? 1;
-    const buffer = 0.1; // 10% outside viewport
+    const buffer = CONFIG.timeline.virtualBuffer; // outside viewport buffer
     const raw = (sortedEvents || []).map((e, idx) => {
       const yf = toYearFraction(e.start);
       if (yf == null) return null;
@@ -180,19 +181,19 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
       }
       const side = idx % 2 === 0 ? 'above' : 'below';
       const level = idx % 4;
-      const colorKey = typeLegend[e.type]?.key || 'slate';
-      const dotClass = typeLegend[e.type]?.dot || 'bg-slate-600';
+      const colorKey = CONFIG.types[e.type]?.key || 'slate';
+      const dotClass = CONFIG.types[e.type]?.dot || 'bg-slate-600';
       const outOfDomain = outStart || outEnd;
       const laneIndex = typeOrder.get(e?.type || 'other') || 0;
       return { e, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain, laneIndex };
     }).filter(Boolean);
 
     // At low zoom, cluster dense points to reduce overdraw
-    if (scale < 1.2 && raw.length > 50) {
+    if (scale < CONFIG.clustering.lowZoomThreshold && raw.length > CONFIG.clustering.clusterMinItems) {
       const clusters = clusterByPosition(
         raw.map(it => ({ key: it.e.id, uScaled: it.uScaled, data: it })),
-        0.02,
-        { edgePad: 0.02 }
+        CONFIG.clustering.bucketSize,
+        { edgePad: CONFIG.clustering.edgePad }
       );
       const merged = [];
       for (const c of clusters) {
@@ -207,8 +208,8 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
       return merged;
     }
     // Same-time stacking with overflow within tiny buckets
-    const epsilon = 0.4; // percent gap to consider same position
-    const maxPerGroup = 4;
+    const epsilon = CONFIG.events.samePosEpsilonPct; // percent gap to consider same position
+    const maxPerGroup = CONFIG.events.maxPerGroup;
     const byPos = [];
     const sorted = [...raw].sort((a, b) => a.posPct - b.posPct);
     let i = 0;
@@ -238,9 +239,9 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
     const center = isVertical
       ? (containerRef.current?.clientWidth || 600) / 2
       : (containerRef.current?.clientHeight || 256) / 2;
-    const levelGap = 30;
+    const levelGap = CONFIG.display.levelGap;
     const offset = (level + 1) * levelGap;
-    return side === 'above' ? center - offset : center + (level * levelGap) + 10;
+    return side === 'above' ? center - offset : center + (level * levelGap) + CONFIG.display.extraOffsetPx;
   }, [isVertical]);
 
   const laneCenter = useCallback((laneIndex) => {
@@ -248,7 +249,7 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
     const extent = isV ? (containerRef.current?.clientWidth || 600) : (containerRef.current?.clientHeight || 256);
     const laneCount = Math.max(1, typeOrder.size || 1);
     if (laneCount <= 1) return Math.floor(extent / 2);
-    const margin = 24;
+    const margin = CONFIG.display.laneMarginPx;
     const usable = Math.max(0, extent - margin * 2);
     const gap = laneCount > 1 ? (usable / (laneCount - 1)) : 0;
     return Math.round(margin + Math.min(laneIndex, laneCount - 1) * gap);

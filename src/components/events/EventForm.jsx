@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { sanitizeText, normalizePartialDate } from '../../utils';
+import CONFIG from '../../config/index.js';
 import { useValidation } from '../../hooks/useValidation';
 import Input from '../ui/Input.jsx';
 import Button from '../ui/Button.jsx';
@@ -32,18 +33,18 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
     body: value?.body || '',
     type: value?.type || 'other',
     start: {
-      year: value?.start?.year || 2000,
+      year: value?.start?.year || CONFIG.events.defaults.startYear,
       month: value?.start?.month ?? 1,
       day: value?.start?.day ?? 1,
       hour: value?.start?.hour ?? 0,
       minute: value?.start?.minute ?? 0,
     },
     end: value?.end ? {
-      year: value?.end?.year ?? value?.start?.year ?? 2000,
-      month: value?.end?.month ?? 1,
-      day: value?.end?.day ?? 1,
-      hour: value?.end?.hour ?? 0,
-      minute: value?.end?.minute ?? 0,
+      year: value?.end?.year ?? value?.start?.year ?? CONFIG.events.defaults.startYear,
+      month: value?.end?.month ?? CONFIG.events.defaults.end.month,
+      day: value?.end?.day ?? CONFIG.events.defaults.end.day,
+      hour: value?.end?.hour ?? CONFIG.events.defaults.end.hour,
+      minute: value?.end?.minute ?? CONFIG.events.defaults.end.minute,
     } : null,
   }));
   const [errors, setErrors] = useState({});
@@ -65,7 +66,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        const draft = { ...local, end: endEnabled ? (local.end || { year: local.start.year, month: 1, day: 1, hour: 0, minute: 0 }) : null };
+        const draft = { ...local, end: endEnabled ? (local.end || { year: local.start.year, ...CONFIG.events.defaults.end }) : null };
         const { valid } = validateEvent(draft);
         if (!valid) return;
         const cleaned = {
@@ -82,7 +83,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
         id="event-title"
         label="Title"
         value={local.title}
-        maxLength={100}
+        maxLength={CONFIG.events.textLimits.titleMax}
         onChange={(e) => update({ title: e.target.value })}
         placeholder="Event title"
         error={errors.title}
@@ -99,7 +100,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
           value={local.body}
           onChange={(e) => update({ body: e.target.value })}
           placeholder="Details or description"
-          maxLength={500}
+          maxLength={CONFIG.events.textLimits.bodyMax}
           rows={4}
         />
         {errors.body && <p className="text-xs text-rose-600 mt-1">{errors.body}</p>}
@@ -112,8 +113,8 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
           type="number"
           value={local.start.year}
           onChange={(e) => updateStart({ year: Number(e.target.value) })}
-          min={1900}
-          max={2100}
+          min={CONFIG.events.yearRange.min}
+          max={CONFIG.events.yearRange.max}
           placeholder="YYYY"
           error={errors.start}
         />
@@ -186,10 +187,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
                   ...prev,
                   end: {
                     year: prev.start.year,
-                    month: 1,
-                    day: 1,
-                    hour: 0,
-                    minute: 0,
+                    ...CONFIG.events.defaults.end,
                   },
                 }));
               }
@@ -207,8 +205,8 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             value={local.end?.year || ''}
             onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
             id="event-end-year"
-            min={1900}
-            max={2100}
+            min={CONFIG.events.yearRange.min}
+            max={CONFIG.events.yearRange.max}
             placeholder="YYYY"
           />
           <Input

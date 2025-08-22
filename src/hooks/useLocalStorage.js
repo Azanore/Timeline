@@ -1,5 +1,6 @@
 // Minimal localStorage hook (placeholder). Full version in Phase 1.
 import { useCallback } from 'react';
+import CONFIG from '../config/index.js';
 
 export function useLocalStorage() {
   // Safe JSON parse that never throws
@@ -49,7 +50,7 @@ export function useLocalStorage() {
   }, []);
 
   // Debounced setter factory (caller can reuse the returned fn)
-  const makeDebouncedSet = useCallback((key, delay = 300) => {
+  const makeDebouncedSet = useCallback((key, delay = CONFIG.storage.debounceMs) => {
     let t;
     return (val) => {
       clearTimeout(t);

@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect } from 'react'
 import Toaster from '../components/ui/Toaster.jsx'
+import CONFIG from '../config/index.js'
 
 const ToastContext = createContext(null)
 
@@ -12,7 +13,7 @@ export function ToastProvider({ children }) {
 
   const addToast = useCallback((toast) => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-    const duration = toast.duration ?? 2500
+    const duration = toast.duration ?? CONFIG.toast.durationMsDefault
     const entry = { id, type: toast.type || 'info', message: toast.message, duration }
     setToasts((prev) => [...prev, entry])
     return id

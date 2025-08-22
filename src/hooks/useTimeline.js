@@ -1,6 +1,7 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 import { TimelineContext } from '../context/TimelineContext.jsx';
 import { useEvents } from './useEvents';
+import CONFIG from '../config/index.js';
 
 export function useTimeline() {
   const ctx = useContext(TimelineContext);
@@ -8,19 +9,20 @@ export function useTimeline() {
 
   // Compute domain from events with padding
   const domain = useMemo(() => {
-    if (!events || events.length === 0) return [1990, 2030];
+    if (!events || events.length === 0) return CONFIG.axis.defaultDomain;
     const years = events.map(e => Number(e.start?.year)).filter(Boolean);
-    if (years.length === 0) return [1990, 2030];
+    if (years.length === 0) return CONFIG.axis.defaultDomain;
     const min = Math.min(...years);
     const max = Math.max(...years);
-    const pad = Math.max(1, Math.round((max - min) * 0.1));
+    const ratio = Number(CONFIG.axis.domainPadRatio) || 0;
+    const pad = Math.max(1, Math.round((max - min) * ratio));
     return [min - pad, max + pad];
   }, [events]);
 
   // Orientation: vertical on small screens
-  const [orientation, setOrientation] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 768 ? 'vertical' : 'horizontal'));
+  const [orientation, setOrientation] = useState(() => (typeof window !== 'undefined' && window.innerWidth < (CONFIG.ui.breakpointSmPx + 1) ? 'vertical' : 'horizontal'));
   useEffect(() => {
-    const onResize = () => setOrientation(window.innerWidth < 768 ? 'vertical' : 'horizontal');
+    const onResize = () => setOrientation(window.innerWidth < (CONFIG.ui.breakpointSmPx + 1) ? 'vertical' : 'horizontal');
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);

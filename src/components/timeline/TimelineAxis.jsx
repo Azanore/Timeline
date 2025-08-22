@@ -1,6 +1,7 @@
 import { useContext, useMemo } from 'react';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { buildLinearScaler, buildDecadeMarkers, formatUTCMonthShort, formatUTCYear, getAxisTickConfig, toYearFraction } from '../../utils';
+import CONFIG from '../../config/index.js';
 
 /**
  * @typedef {Object} TimelineAxisProps
@@ -11,7 +12,7 @@ import { buildLinearScaler, buildDecadeMarkers, formatUTCMonthShort, formatUTCYe
 /**
  * @param {TimelineAxisProps} props
  */
-export default function TimelineAxis({ domain = [1990, 2030], orientation = 'horizontal' }) {
+export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain, orientation = 'horizontal' }) {
   const { viewport } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const scale = viewport?.scale ?? 1;
   const pan = viewport?.pan ?? 0; // unit offset (-1..1) applied across width
@@ -31,7 +32,7 @@ export default function TimelineAxis({ domain = [1990, 2030], orientation = 'hor
     const a = Math.min(yMin, yMax);
     const b = Math.max(yMin, yMax);
     // small buffer to avoid label popping
-    const pad = (b - a) * 0.05;
+    const pad = (b - a) * CONFIG.axis.visiblePadRatio;
     return [a - pad, b + pad];
   }, [pan, scale, scaler]);
 
@@ -55,7 +56,7 @@ export default function TimelineAxis({ domain = [1990, 2030], orientation = 'hor
       // Iterate days via UTC Date to handle month lengths/leap years
       const startYear = Math.floor(vMin);
       const endYear = Math.ceil(vMax);
-      const maxTicks = 1200; // safety cap
+      const maxTicks = CONFIG.axis.maxDayTicks; // safety cap
       let count = 0;
       for (let y = startYear; y <= endYear; y++) {
         const start = Date.UTC(y, 0, 1, 0, 0, 0, 0);
@@ -76,7 +77,7 @@ export default function TimelineAxis({ domain = [1990, 2030], orientation = 'hor
     } else if (unit === 'hour') {
       const startYear = Math.floor(vMin);
       const endYear = Math.ceil(vMax);
-      const maxTicks = 1500; // safety cap
+      const maxTicks = CONFIG.axis.maxHourTicks; // safety cap
       let count = 0;
       for (let y = startYear; y <= endYear; y++) {
         for (let m = 1; m <= 12; m++) {

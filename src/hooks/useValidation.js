@@ -1,6 +1,7 @@
 // Placeholder validation hook with stable callbacks.
 import { useCallback } from 'react';
 import { comparePartialDate } from '../utils';
+import CONFIG from '../config/index.js';
 
 // Helpers at module scope
 const isLeapYear = (y) => (y % 4 === 0 && y % 100 !== 0) || (y % 400 === 0);
@@ -10,7 +11,7 @@ const stripInvisible = (s = '') => String(s).replace(/[\u0000-\u001F\u007F\u200B
 const isValidDatePartsFn = (d = {}) => {
   const hasVal = (v) => v !== undefined && v !== null && v !== '';
   const y = Number(d.year);
-  if (!Number.isFinite(y) || y < 1900 || y > 2100) return false;
+  if (!Number.isFinite(y) || y < CONFIG.events.yearRange.min || y > CONFIG.events.yearRange.max) return false;
   if (hasVal(d.month)) {
     const m = Number(d.month);
     if (!Number.isFinite(m) || m < 1 || m > 12) return false;
@@ -35,11 +36,11 @@ const validateEventFn = (e) => {
   const rawTitle = e?.title || '';
   const title = stripInvisible(rawTitle);
   if (title.length === 0) errors.title = 'Required';
-  if (rawTitle.length > 100) errors.title = 'Max 100 chars';
+  if (rawTitle.length > CONFIG.events.textLimits.titleMax) errors.title = `Max ${CONFIG.events.textLimits.titleMax} chars`;
   const rawBody = e?.body ?? '';
   const body = stripInvisible(rawBody);
   if (body.length === 0) errors.body = 'Required';
-  else if (rawBody.length > 500) errors.body = 'Max 500 chars';
+  else if (rawBody.length > CONFIG.events.textLimits.bodyMax) errors.body = `Max ${CONFIG.events.textLimits.bodyMax} chars`;
 
   // Start date validation
   if (!isValidDatePartsFn(e?.start)) errors.start = 'Invalid start date/time';

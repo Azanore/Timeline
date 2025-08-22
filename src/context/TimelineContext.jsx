@@ -2,13 +2,14 @@ import { createContext, useCallback, useEffect, useMemo, useState } from 'react'
 import { normalizeEvent } from '../utils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useRef } from 'react';
+import CONFIG from '../config/index.js';
 
 export const TimelineContext = createContext(null);
 
-const APP_KEY = 'timeline_app';
+const APP_KEY = CONFIG.storage.appKey;
 
 function makeId() {
-  return Math.random().toString(36).slice(2, 10);
+  return Math.random().toString(36).slice(2, 2 + (CONFIG.app.idLength || 8));
 }
 
 export function TimelineProvider({ children }) {
@@ -20,7 +21,7 @@ export function TimelineProvider({ children }) {
   }, [get]);
 
   const writeApp = useCallback((updater) => {
-    const current = readApp() || { version: 1, activeTimelineId: 'default', timelines: [{ id: 'default', name: 'Default', version: 1 }], data: {} };
+    const current = readApp() || { version: CONFIG.app.initialVersion, activeTimelineId: 'default', timelines: [{ id: 'default', name: CONFIG.app.defaultTimelineName, version: CONFIG.app.initialVersion }], data: {} };
     const next = typeof updater === 'function' ? updater(current) : { ...current, ...updater };
     set(APP_KEY, next);
     return next;
@@ -30,13 +31,13 @@ export function TimelineProvider({ children }) {
   useEffect(() => {
     const app = readApp();
     if (app) return;
-    const consolidated = { version: 1, activeTimelineId: 'default', timelines: [{ id: 'default', name: 'Default', version: 1 }], data: { default: { id: 'default', name: 'Default', createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } } };
+    const consolidated = { version: CONFIG.app.initialVersion, activeTimelineId: 'default', timelines: [{ id: 'default', name: CONFIG.app.defaultTimelineName, version: CONFIG.app.initialVersion }], data: { default: { id: 'default', name: CONFIG.app.defaultTimelineName, createdAt: Date.now(), updatedAt: Date.now(), version: CONFIG.app.initialVersion, events: [], viewport: { scale: CONFIG.zoom.reset, pan: 0 } } } };
     set(APP_KEY, consolidated);
   }, [get, set, readApp]);
 
-  const initialApp = readApp() || { version: 1, activeTimelineId: 'default', timelines: [{ id: 'default', name: 'Default', version: 1 }], data: { default: { id: 'default', name: 'Default', createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } } };
+  const initialApp = readApp() || { version: CONFIG.app.initialVersion, activeTimelineId: 'default', timelines: [{ id: 'default', name: CONFIG.app.defaultTimelineName, version: CONFIG.app.initialVersion }], data: { default: { id: 'default', name: CONFIG.app.defaultTimelineName, createdAt: Date.now(), updatedAt: Date.now(), version: CONFIG.app.initialVersion, events: [], viewport: { scale: CONFIG.zoom.reset, pan: 0 } } } };
 
-  const [timelines, setTimelines] = useState(() => initialApp.timelines || [{ id: 'default', name: 'Default', version: 1 }]);
+  const [timelines, setTimelines] = useState(() => initialApp.timelines || [{ id: 'default', name: CONFIG.app.defaultTimelineName, version: CONFIG.app.initialVersion }]);
   const [activeTimelineId, setActiveTimelineId] = useState(() => initialApp.activeTimelineId || 'default');
 
   // Persist index and active id into APP_KEY on change
@@ -51,7 +52,7 @@ export function TimelineProvider({ children }) {
       const exists = app.data?.[activeTimelineId];
       if (exists) return app;
       const name = timelines.find(t => t.id === activeTimelineId)?.name || 'Untitled';
-      return { ...app, data: { ...(app.data || {}), [activeTimelineId]: { id: activeTimelineId, name, createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } } };
+      return { ...app, data: { ...(app.data || {}), [activeTimelineId]: { id: activeTimelineId, name, createdAt: Date.now(), updatedAt: Date.now(), version: CONFIG.app.initialVersion, events: [], viewport: { scale: CONFIG.zoom.reset, pan: 0 } } } };
     });
   }, [activeTimelineId, writeApp, timelines]);
 
@@ -59,14 +60,14 @@ export function TimelineProvider({ children }) {
     setActiveTimelineId(id);
   }, []);
 
-  const createTimeline = useCallback((name = 'New Timeline') => {
+  const createTimeline = useCallback((name = CONFIG.app.newTimelineName) => {
     const id = makeId();
-    const entry = { id, name, version: 1 };
+    const entry = { id, name, version: CONFIG.app.initialVersion };
     setTimelines(prev => [entry, ...prev]);
     writeApp(app => ({
       ...app,
       timelines: [entry, ...(app.timelines || [])],
-      data: { ...(app.data || {}), [id]: { id, name, createdAt: Date.now(), updatedAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } } },
+      data: { ...(app.data || {}), [id]: { id, name, createdAt: Date.now(), updatedAt: Date.now(), version: CONFIG.app.initialVersion, events: [], viewport: { scale: CONFIG.zoom.reset, pan: 0 } } },
     }));
     setActiveTimelineId(id);
     return id;
@@ -106,25 +107,25 @@ export function TimelineProvider({ children }) {
   const [viewport, setViewport] = useState(() => {
     const app = readApp();
     const tl = app?.data?.[activeTimelineId];
-    return tl?.viewport || { scale: 1, pan: 0 };
+    return tl?.viewport || { scale: CONFIG.zoom.reset, pan: 0 };
   });
 
   // Load viewport when active timeline changes
   useEffect(() => {
     const app = readApp();
     const tl = app?.data?.[activeTimelineId];
-    setViewport(tl?.viewport || { scale: 1, pan: 0 });
+    setViewport(tl?.viewport || { scale: CONFIG.zoom.reset, pan: 0 });
   }, [activeTimelineId, readApp]);
 
-  // Persist timeline data (events + viewport) into APP_KEY with debounce (300ms)
+  // Persist timeline data (events + viewport) into APP_KEY with debounce from CONFIG
   useEffect(() => {
     if (!activeTimelineId) return;
     if (!debouncedSetRef.current) {
-      debouncedSetRef.current = makeDebouncedSet(APP_KEY, 300);
+      debouncedSetRef.current = makeDebouncedSet(APP_KEY, CONFIG.storage.debounceMs);
     }
-    const app = readApp() || { version: 1, activeTimelineId, timelines, data: {} };
-    const existing = app.data?.[activeTimelineId] || { id: activeTimelineId, name: timelines.find(t => t.id === activeTimelineId)?.name || 'Untitled', createdAt: Date.now(), version: 1, events: [], viewport: { scale: 1, pan: 0 } };
-    const updatedEntry = { ...existing, updatedAt: Date.now(), events: events || [], viewport: viewport || { scale: 1, pan: 0 } };
+    const app = readApp() || { version: CONFIG.app.initialVersion, activeTimelineId, timelines, data: {} };
+    const existing = app.data?.[activeTimelineId] || { id: activeTimelineId, name: timelines.find(t => t.id === activeTimelineId)?.name || 'Untitled', createdAt: Date.now(), version: CONFIG.app.initialVersion, events: [], viewport: { scale: CONFIG.zoom.reset, pan: 0 } };
+    const updatedEntry = { ...existing, updatedAt: Date.now(), events: events || [], viewport: viewport || { scale: CONFIG.zoom.reset, pan: 0 } };
     const next = { ...app, activeTimelineId, timelines, data: { ...(app.data || {}), [activeTimelineId]: updatedEntry } };
     debouncedSetRef.current(next);
   }, [events, viewport, activeTimelineId, timelines, readApp, makeDebouncedSet]);

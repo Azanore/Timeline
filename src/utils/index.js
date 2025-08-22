@@ -1,4 +1,5 @@
 // Utility placeholders. Implementations will expand in later phases.
+import CONFIG from '../config/index.js';
 
 // Sanitize text by trimming and escaping HTML special chars to prevent XSS
 export const sanitizeText = (s = '') => {
@@ -63,7 +64,7 @@ export function buildDecadeMarkers(domain, scale) {
 }
 
 // Clamp a year to valid range
-export function clampYear(y, min = 1900, max = 2100) {
+export function clampYear(y, min = CONFIG.events.yearRange.min, max = CONFIG.events.yearRange.max) {
   const n = Number(y);
   if (!Number.isFinite(n)) return min;
   return clamp(n, min, max);
@@ -73,7 +74,7 @@ export function clampYear(y, min = 1900, max = 2100) {
 // We treat the unit domain [0..1] scaled about center with factor S, then shifted by pan P.
 // Bounds: P in [-(S-1)/(2S), +(S-1)/(2S)]
 export function clampPan(pan, scale = 1) {
-  const S = Math.max(0.1, Number(scale) || 1);
+  const S = Math.max(CONFIG.zoom.scaleMin, Number(scale) || 1);
   if (S <= 1) return 0; // no pan needed when content fits
   // Correct bound so the viewport can traverse the entire [0..1] domain at any zoom:
   // P in [-(S-1)/2, +(S-1)/2]
@@ -206,31 +207,21 @@ export function normalizeEvent(e = {}) {
   return out;
 }
 
-// Centralized type color legend
-export const typeLegend = {
-  history: { key: 'rose', dot: 'bg-rose-600', border: 'rose' },
-  personal: { key: 'emerald', dot: 'bg-emerald-600', border: 'emerald' },
-  science: { key: 'blue', dot: 'bg-blue-600', border: 'blue' },
-  culture: { key: 'violet', dot: 'bg-violet-600', border: 'violet' },
-  tech: { key: 'amber', dot: 'bg-amber-500', border: 'amber' },
-  other: { key: 'slate', dot: 'bg-slate-600', border: 'slate' },
-};
+// Type legend moved to CONFIG.types
 
 // Snap scale to friendly levels for label stability
 export function snapScale(s) {
   // Snap only at meaningful thresholds that align with axis tick transitions
-  // Within current clamp [0.1..5], the effective unit transitions occur near 0.5, 1, 2, and 4.
-  // Keep 5 as a terminal level for convenience.
-  const levels = [0.5, 1, 2, 4, 5];
-  const clampS = clamp(s, 0.1, 5);
+  const levels = CONFIG.zoom.snapLevels;
+  const clampS = clamp(s, CONFIG.zoom.scaleMin, CONFIG.zoom.scaleMax);
   let best = levels[0];
   let bestDiff = Math.abs(clampS - best);
   for (const lv of levels) {
     const d = Math.abs(clampS - lv);
     if (d < bestDiff) { best = lv; bestDiff = d; }
   }
-  // Only snap if close enough (within 0.06)
-  return bestDiff <= 0.06 ? best : clampS;
+  // Only snap if close enough
+  return bestDiff <= CONFIG.zoom.snapThreshold ? best : clampS;
 }
 
 // Very lightweight positional clustering by rounding unit positions.
