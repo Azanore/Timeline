@@ -4,6 +4,7 @@ import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { clamp, buildLinearScaler, clampPan, toYearFraction, typeLegend, snapScale, clusterByPosition } from '../../utils';
 import { useEvents } from '../../hooks/useEvents';
 import EventDialog from '../events/EventDialog.jsx';
+import EventCard from '../events/EventCard.jsx';
 
 /**
  * @typedef {Object} TimelineProps
@@ -111,33 +112,47 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
 
   const onWheel = useCallback((e) => {
     if (!containerRef.current) return;
-    // Prevent page from scrolling while zooming the timeline
-    e.preventDefault();
-    const current = viewport?.scale ?? 1;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = clamp((e.clientX - rect.left) / rect.width, 0, 1); // anchor point 0..1
+    const S = viewport?.scale ?? 1;
+    const P = viewport?.pan ?? 0;
     // Zoom factor; trackpad-friendly small increments
     const delta = -e.deltaY; // invert: wheel up -> zoom in
     const factor = 1 + clamp(delta / 1000, -0.25, 0.25);
-    const raw = clamp(current * factor, 0.1, 5);
-    const next = snapScale(raw);
-    // rAF throttle scale updates too
+    // Important: do not snap on wheel, or we get stuck at 0.5 with tiny deltas
+    const Snext = clamp(S * factor, 0.1, 5);
+    // Keep the point under cursor stationary after zoom
+    // Derived from uScaled = (u - 0.5)*S + 0.5 + P, with u = x kept fixed on screen
+    const ratio = S === 0 ? 1 : (Snext / S);
+    let Pnext = (x - 0.5) - (x - 0.5 - P) * ratio;
+    Pnext = clampPan(Pnext, Snext);
+    // rAF throttle scale+pan updates
     if (!rafRef.current) {
-      const nextScale = next;
+      const ns = Snext; const np = Pnext;
       rafRef.current = requestAnimationFrame(() => {
-        setScale(nextScale);
-        // Also clamp current pan to the new scale bounds
-        const curPan = viewport?.pan ?? 0;
-        const clamped = clampPan(curPan, nextScale);
-        if (clamped !== curPan) setPan(clamped);
+        setScale(ns);
+        setPan(np);
         rafRef.current = null;
       });
     } else {
-      setScale(next);
-      // Clamp pan immediately when coalescing wheel events
-      const curPan = viewport?.pan ?? 0;
-      const clamped = clampPan(curPan, next);
-      if (clamped !== curPan) setPan(clamped);
+      setScale(Snext);
+      setPan(Pnext);
     }
   }, [viewport?.scale, viewport?.pan, setScale, setPan]);
+
+  // Attach a non-passive wheel listener so preventDefault works without warnings
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handle = (evt) => {
+      // Prevent page scroll while zooming timeline
+      evt.preventDefault();
+      onWheel(evt);
+    };
+    el.addEventListener('wheel', handle, { passive: false });
+    return () => el.removeEventListener('wheel', handle);
+    // Depend on onWheel so logic stays up to date
+  }, [onWheel]);
 
   // typeLegend and toYearFraction are imported from utils
 
@@ -245,7 +260,7 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
       <TimelineAxis domain={domain} orientation={isVertical ? 'vertical' : 'horizontal'} />
       <div
         ref={containerRef}
-        className={`flex-1 min-h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none touch-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
+        className={`flex-1 min-h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none touch-none focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-hidden`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
@@ -261,7 +276,6 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
         onMouseMove={onMouseMove}
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
-        onWheel={onWheel}
         onTouchStart={(e) => {
           if (e.touches.length === 2) {
             const [a, b] = [e.touches[0], e.touches[1]];
@@ -272,7 +286,6 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
         }}
         onTouchMove={(e) => {
           if (pinchRef.current.active && e.touches.length === 2) {
-            e.preventDefault();
             const [a, b] = [e.touches[0], e.touches[1]];
             const dx = a.clientX - b.clientX;
             const dy = a.clientY - b.clientY;
@@ -280,11 +293,16 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
             const factor = dist / (pinchRef.current.startDist || dist || 1);
             const raw = clamp((pinchRef.current.startScale || 1) * factor, 0.1, 5);
             const next = snapScale(raw);
+            // Anchor zoom at touch centroid
+            const rect = containerRef.current.getBoundingClientRect();
+            const cx = ((a.clientX + b.clientX) / 2 - rect.left) / rect.width; // 0..1
+            const S = viewport?.scale ?? 1;
+            const P = viewport?.pan ?? 0;
+            const ratio = S === 0 ? 1 : (next / S);
+            let Pnext = (cx - 0.5) - (cx - 0.5 - P) * ratio;
+            Pnext = clampPan(Pnext, next);
             setScale(next);
-            // Ensure current pan remains valid under the new scale
-            const curPan = viewport?.pan ?? 0;
-            const clamped = clampPan(curPan, next);
-            if (clamped !== curPan) setPan(clamped);
+            setPan(Pnext);
           }
         }}
         onTouchEnd={() => { pinchRef.current = { active: false, startDist: 0, startScale: 1 }; }}
@@ -329,9 +347,9 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
             // Edge-aware alignment to avoid clipping near boundaries
             const innerTransform = (() => {
               if (isVertical) {
-                if (posPct < 1) return 'translateY(0)';
-                if (posPct > 99) return 'translateY(-100%)';
-                return 'translateY(-50%)';
+                if (posPct < 1) return 'translate(-50%, 0)';
+                if (posPct > 99) return 'translate(-50%, -100%)';
+                return 'translate(-50%, -50%)';
               } else {
                 if (posPct < 1) return 'translateX(0)';
                 if (posPct > 99) return 'translateX(-100%)';
@@ -434,33 +452,12 @@ export default function Timeline({ domain, orientationOverride, lanesByType = fa
                 />
               )}
               <div className="relative" style={{ transform: innerTransform }}>
-                {/* Adaptive dot rendering by zoom level */}
-                <button
-                  type="button"
-                  className={`${
-                    scaleVal >= 1.5 ? 'w-3 h-3' : 
-                    scaleVal >= 0.8 ? 'w-2 h-2' : 
-                    'w-1.5 h-1.5'
-                  } rounded-full shadow mx-auto ${dotClass} ${selected?.id === e.id ? 'ring-2 ring-offset-2 ring-emerald-500' : ''} ${outOfDomain ? 'opacity-60 outline outline-1 outline-slate-400' : ''}`}
-                  aria-label={`${e.title} (${e.start?.year || ''})${outOfDomain ? ' (out of domain)' : ''}`}
+                <EventCard
+                  event={e}
+                  scale={scaleVal}
+                  selected={selected?.id === e.id}
                   onClick={() => { setSelected(e); setOpenEdit(true); }}
-                  title={`${e.title} (${e.start?.year || ''})${outOfDomain ? ' • out of domain' : ''}`}
                 />
-                {/* Close zoom: inline labels with resize handles */}
-                {scaleVal >= 1.5 && (
-                  <div className="mt-1" onClick={() => { setSelected(e); setOpenEdit(true); }}>
-                    <div className="text-[10px] text-slate-700 whitespace-nowrap max-w-[160px] truncate" title={`${e.title}${outOfDomain ? ' • out of domain' : ''}`}>
-                      {e.title}{outOfDomain ? ' •' : ''}
-                    </div>
-                    {Number.isFinite(endPos) && (
-                      <div className="flex gap-1 mt-1">
-                        <div className="w-1 h-1 bg-slate-400 rounded-full cursor-ew-resize" title="Resize start" />
-                        <div className="w-1 h-1 bg-slate-400 rounded-full cursor-ew-resize" title="Resize end" />
-                      </div>
-                    )}
-                  </div>
-                )}
-                {/* Mid zoom: tooltips only (handled by title attribute) */}
               </div>
                 </div>
                 {/* Far zoom: render an end dot as well (two dots + connector) */}

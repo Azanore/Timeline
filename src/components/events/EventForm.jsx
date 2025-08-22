@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { sanitizeText } from '../../utils';
+import { sanitizeText, normalizePartialDate } from '../../utils';
 import { useValidation } from '../../hooks/useValidation';
 import Input from '../ui/Input.jsx';
 import Button from '../ui/Button.jsx';
@@ -7,7 +7,7 @@ import Button from '../ui/Button.jsx';
 /**
  * @typedef EventInput
  * @property {string} title
- * @property {string} [body]
+ * @property {string} body
  * @property {'history'|'personal'|'science'|'culture'|'tech'|'other'} type
  * @property {{year:number, month?:number, day?:number, hour?:number, minute?:number}} start
  */
@@ -25,7 +25,7 @@ import Button from '../ui/Button.jsx';
 /**
  * @param {EventFormProps} props
  */
-export default function EventForm({ value, onChange, onValidityChange, onCancel, onSubmit, labels = { submitLabel: 'Save', cancelLabel: 'Cancel' } }) {
+export default function EventForm({ value, onCancel, onSubmit, labels = { submitLabel: 'Save', cancelLabel: 'Cancel' } }) {
   const { validateEvent } = useValidation();
   const [local, setLocal] = useState(() => ({
     title: value?.title || '',
@@ -33,17 +33,17 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
     type: value?.type || 'other',
     start: {
       year: value?.start?.year || 2000,
-      month: value?.start?.month || '',
-      day: value?.start?.day || '',
-      hour: value?.start?.hour || '',
-      minute: value?.start?.minute || '',
+      month: value?.start?.month ?? 1,
+      day: value?.start?.day ?? 1,
+      hour: value?.start?.hour ?? 0,
+      minute: value?.start?.minute ?? 0,
     },
     end: value?.end ? {
-      year: value?.end?.year || '',
-      month: value?.end?.month || '',
-      day: value?.end?.day || '',
-      hour: value?.end?.hour || '',
-      minute: value?.end?.minute || '',
+      year: value?.end?.year ?? value?.start?.year ?? 2000,
+      month: value?.end?.month ?? 1,
+      day: value?.end?.day ?? 1,
+      hour: value?.end?.hour ?? 0,
+      minute: value?.end?.minute ?? 0,
     } : null,
   }));
   const [errors, setErrors] = useState({});
@@ -51,13 +51,9 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
 
   useEffect(() => {
     const draft = { ...local, end: endEnabled ? local.end : null };
-    onChange?.(draft);
-    const { valid, errors: errs } = validateEvent({ ...draft, title: local.title });
+    const { errors: errs } = validateEvent({ ...draft, title: local.title });
     setErrors(errs);
-    onValidityChange?.(valid);
-    // Intentionally depend only on local/endEnabled to avoid loops from changing function refs
-    // validateEvent and callbacks are assumed stable enough for this form's lifecycle
-  }, [local, endEnabled]);
+  }, [local, endEnabled, validateEvent]);
 
   const update = (patch) => setLocal(prev => ({ ...prev, ...patch }));
   const updateStart = (patch) => setLocal(prev => ({ ...prev, start: { ...prev.start, ...patch } }));
@@ -66,45 +62,52 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
   return (
     <form
       className="space-y-3"
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        const draft = { ...local, end: endEnabled ? local.end : null };
+        const draft = { ...local, end: endEnabled ? (local.end || { year: local.start.year, month: 1, day: 1, hour: 0, minute: 0 }) : null };
         const { valid } = validateEvent(draft);
         if (!valid) return;
         const cleaned = {
           ...draft,
           title: sanitizeText(draft.title),
           body: sanitizeText(draft.body),
-          start: {
-            year: Number(draft.start.year),
-            month: draft.start.month ? Number(draft.start.month) : undefined,
-            day: draft.start.day ? Number(draft.start.day) : undefined,
-            hour: draft.start.hour ? Number(draft.start.hour) : undefined,
-            minute: draft.start.minute ? Number(draft.start.minute) : undefined,
-          },
-          end: endEnabled && draft.end ? {
-            year: Number(draft.end.year),
-            month: draft.end.month ? Number(draft.end.month) : undefined,
-            day: draft.end.day ? Number(draft.end.day) : undefined,
-            hour: draft.end.hour ? Number(draft.end.hour) : undefined,
-            minute: draft.end.minute ? Number(draft.end.minute) : undefined,
-          } : undefined,
+          start: normalizePartialDate(draft.start),
+          end: endEnabled && draft.end ? normalizePartialDate(draft.end) : undefined,
         };
         onSubmit?.(cleaned);
       }}
     >
       <Input
+        id="event-title"
         label="Title"
         value={local.title}
         maxLength={100}
         onChange={(e) => update({ title: e.target.value })}
         placeholder="Event title"
-        required
         error={errors.title}
       />
 
+      {/* Body textarea */}
+      <div>
+        <label className="block text-sm text-slate-700 mb-1" htmlFor="event-body">
+          Body <span className="text-rose-600">*</span>
+        </label>
+        <textarea
+          id="event-body"
+          className={`w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 ${errors.body ? 'border-rose-400' : 'border-slate-300'}`}
+          value={local.body}
+          onChange={(e) => update({ body: e.target.value })}
+          placeholder="Details or description"
+          maxLength={500}
+          rows={4}
+        />
+        {errors.body && <p className="text-xs text-rose-600 mt-1">{errors.body}</p>}
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <Input
+          id="event-year"
           label="Year"
           type="number"
           value={local.start.year}
@@ -112,7 +115,6 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
           min={1900}
           max={2100}
           placeholder="YYYY"
-          required
           error={errors.start}
         />
         <div>
@@ -173,7 +175,26 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
 
       <div className="pt-2">
         <label className="inline-flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={endEnabled} onChange={(e) => setEndEnabled(e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={endEnabled}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setEndEnabled(checked);
+              if (checked && !local.end) {
+                setLocal(prev => ({
+                  ...prev,
+                  end: {
+                    year: prev.start.year,
+                    month: 1,
+                    day: 1,
+                    hour: 0,
+                    minute: 0,
+                  },
+                }));
+              }
+            }}
+          />
           Period (has end date)
         </label>
       </div>
@@ -185,6 +206,7 @@ export default function EventForm({ value, onChange, onValidityChange, onCancel,
             type="number"
             value={local.end?.year || ''}
             onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
+            id="event-end-year"
             min={1900}
             max={2100}
             placeholder="YYYY"

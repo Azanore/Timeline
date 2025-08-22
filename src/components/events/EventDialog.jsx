@@ -20,7 +20,6 @@ import { formatPartialUTC } from '../../utils';
 export default function EventDialog({ open, onClose, event, closeOnSave = false }) {
   const { updateEvent, removeEvent } = useEvents();
   const toast = useToast();
-  const [isValid, setIsValid] = useState(true);
   const [mode, setMode] = useState('view'); // 'view' | 'edit'
 
   // Ensure the dialog always opens in view mode and resets on event change
@@ -94,10 +93,8 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
           <h3 className="text-lg font-semibold mb-3">Edit Event</h3>
           <EventForm
             value={event}
-            onValidityChange={setIsValid}
             onCancel={() => setMode('view')}
             onSubmit={(val) => {
-              if (!isValid) return;
               updateEvent(event.id, { ...event, ...val });
               toast.success('Event updated');
               if (closeOnSave) {

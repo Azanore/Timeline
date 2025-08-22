@@ -11,8 +11,7 @@ function App() {
   const { addEvent } = useEvents()
   const toast = useToast()
   const [openAdd, setOpenAdd] = useState(false)
-  const [isValid, setIsValid] = useState(false)
-  const [formValue, setFormValue] = useState(null)
+  // Validation handled inside EventForm on submit; keep parent stateless
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -25,12 +24,8 @@ function App() {
       <Modal open={openAdd} onClose={() => setOpenAdd(false)} ariaLabel="Add Event">
         <h3 className="text-lg font-semibold mb-3">Add Event</h3>
         <EventForm
-          value={formValue || {}}
-          onChange={setFormValue}
-          onValidityChange={setIsValid}
           onCancel={() => setOpenAdd(false)}
           onSubmit={(val) => {
-            if (!isValid) return
             addEvent({
               title: val.title,
               body: val.body,
@@ -39,7 +34,6 @@ function App() {
               ...(val.end ? { end: val.end } : {}),
             })
             setOpenAdd(false)
-            setFormValue(null)
             toast.success('Event added')
           }}
           labels={{ submitLabel: 'Add', cancelLabel: 'Cancel' }}

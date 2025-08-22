@@ -75,17 +75,24 @@ export function clampYear(y, min = 1900, max = 2100) {
 export function clampPan(pan, scale = 1) {
   const S = Math.max(0.1, Number(scale) || 1);
   if (S <= 1) return 0; // no pan needed when content fits
-  const bound = (S - 1) / (2 * S);
+  // Correct bound so the viewport can traverse the entire [0..1] domain at any zoom:
+  // P in [-(S-1)/2, +(S-1)/2]
+  const bound = (S - 1) / 2;
   return clamp(Number(pan) || 0, -bound, bound);
 }
 
-// Compare two partial date objects. Undefined parts are treated as 0.
+// Compare two partial date objects with coherent defaults.
+// Missing parts default to month=1, day=1, hour=0, minute=0 so that
+// an event with only a year equals the timestamp of Jan 1, 00:00 of that year.
 // Returns -1, 0, 1
 export function comparePartialDate(a = {}, b = {}) {
   const parts = ['year', 'month', 'day', 'hour', 'minute'];
+  const defaults = { month: 1, day: 1, hour: 0, minute: 0 };
   for (const p of parts) {
-    const av = Number(a[p] ?? 0);
-    const bv = Number(b[p] ?? 0);
+    const aVal = a[p] ?? (p in defaults ? defaults[p] : 0);
+    const bVal = b[p] ?? (p in defaults ? defaults[p] : 0);
+    const av = Number(aVal);
+    const bv = Number(bVal);
     if (av < bv) return -1;
     if (av > bv) return 1;
   }
@@ -175,6 +182,28 @@ export function formatPartialUTC(d = {}) {
   if (hh == null && min == null) return datePart;
   const timePart = `${hh ?? '00'}:${min ?? '00'}`;
   return datePart ? `${datePart} ${timePart}` : timePart;
+}
+
+// Normalize a partial date by applying coherent defaults
+// Ensures { year, month=1, day=1, hour=0, minute=0 }
+export function normalizePartialDate(d = {}) {
+  const y = Number(d?.year);
+  if (!Number.isFinite(y)) return null;
+  return {
+    year: y,
+    month: Number(d?.month ?? 1) || 1,
+    day: Number(d?.day ?? 1) || 1,
+    hour: Number(d?.hour ?? 0) || 0,
+    minute: Number(d?.minute ?? 0) || 0,
+  };
+}
+
+// Normalize an event object to ensure start/end dates have defaults
+export function normalizeEvent(e = {}) {
+  const out = { ...e };
+  if (e?.start) out.start = normalizePartialDate(e.start);
+  if (e?.end) out.end = normalizePartialDate(e.end);
+  return out;
 }
 
 // Centralized type color legend

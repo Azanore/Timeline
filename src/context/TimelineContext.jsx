@@ -1,4 +1,5 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
+import { normalizeEvent } from '../utils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useRef } from 'react';
 
@@ -89,14 +90,16 @@ export function TimelineProvider({ children }) {
   const [events, setEvents] = useState(() => {
     const app = readApp();
     const tl = app?.data?.[activeTimelineId];
-    return tl?.events || [];
+    const raw = tl?.events || [];
+    return raw.map(normalizeEvent);
   });
 
     // Load events when active timeline changes
   useEffect(() => {
     const app = readApp();
     const tl = app?.data?.[activeTimelineId];
-    setEvents(tl?.events || []);
+    const raw = tl?.events || [];
+    setEvents(raw.map(normalizeEvent));
   }, [activeTimelineId, readApp]);
 
     // Viewport state for active timeline
@@ -129,12 +132,17 @@ export function TimelineProvider({ children }) {
   // Event CRUD
   const addEvent = useCallback((input) => {
     const id = makeId();
-    setEvents(prev => [...prev, { ...input, id }]);
+    const normalized = normalizeEvent({ ...input, id });
+    setEvents(prev => [...prev, normalized]);
     return id;
   }, []);
 
   const updateEvent = useCallback((id, input) => {
-    setEvents(prev => prev.map(e => (e.id === id ? { ...e, ...input } : e)));
+    setEvents(prev => prev.map(e => {
+      if (e.id !== id) return e;
+      const merged = { ...e, ...input };
+      return normalizeEvent(merged);
+    }));
   }, []);
 
   const removeEvent = useCallback((id) => {
