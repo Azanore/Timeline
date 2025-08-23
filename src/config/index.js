@@ -44,6 +44,16 @@ const CONFIG = {
     visiblePadRatio: 0.05, // 5% label pad
     domainPadRatio: 0.1, // 10% padding around min/max from events
     // Tick density controls
+    // Single base to harmonize subdivisions across units (e.g., 4 -> quarters, 4 weeks, 6 hours, 15 minutes)
+    canonicalBase: 4,
+    // When to switch tick units based on visible span (configurable)
+    thresholds: {
+      minuteUpperHours: 6,      // <= 6 hours -> minutes
+      hourUpperDays: 7,         // <= 7 days -> hours
+      dayUpperYears: 0.08,      // <= ~1 month -> days
+      weekUpperYears: 0.5,      // <= ~6 months -> weeks
+      monthUpperYears: 12,      // <= 12 years -> months
+    },
     maxLabels: 14,
     minLabelSpacingPx: 42,
     maxDayTicks: 1200,

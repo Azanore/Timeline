@@ -49,16 +49,35 @@ export function getAxisTickConfig(scale) {
 // New: span-based tick config for adaptive axis independent of abstract scale
 export function getAxisTickConfigBySpan(visibleSpanYears) {
   const y = Math.max(visibleSpanYears, 1e-9);
-  // Minute-level when span <= ~6 hours
-  if (y <= (6 / (365 * 24))) return { unit: 'minute', step: 15, showLabels: true };
-  // Hour-level when span <= ~7 days (delayed to keep day labels longer)
-  if (y <= 7 / 365) return { unit: 'hour', step: y <= (3 / 365) ? 1 : 3, showLabels: true };
-  // Day-level (step 1) when span <= ~1 month (~0.08 years)
-  if (y <= 0.08) return { unit: 'day', step: 1, showLabels: true };
-  // Week-level when span <= ~6 months
-  if (y <= 0.5) return { unit: 'week', step: 1, showLabels: true };
-  // Month-level when span <= ~12 years
-  if (y <= 12) return { unit: 'month', step: y <= 4 ? 1 : 3, showLabels: true };
+  const base = Math.max(1, Number(CONFIG.axis?.canonicalBase ?? 4));
+  const th = CONFIG.axis?.thresholds || {};
+  const minuteUpperHours = Number(th.minuteUpperHours ?? 6);
+  const hourUpperDays = Number(th.hourUpperDays ?? 7);
+  const dayUpperYears = Number(th.dayUpperYears ?? 0.08);
+  const weekUpperYears = Number(th.weekUpperYears ?? 0.5);
+  const monthUpperYears = Number(th.monthUpperYears ?? 12);
+  const canonicalStep = (unit) => {
+    switch (unit) {
+      case 'minute': return Math.max(1, Math.round(60 / base)); // e.g., 4 -> 15m
+      case 'hour': return Math.max(1, Math.round(24 / base)); // e.g., 4 -> 6h
+      case 'day': return 1; // Always 1 day to avoid irregular 2-day patterns
+      case 'week': return 1; // keep full weeks for calendar sanity
+      case 'month': return Math.max(1, Math.round(12 / base)); // e.g., 4 -> 3 months (quarters)
+      default: return 1;
+    }
+  };
+  // Minute-level when span <= configured hours
+  if (y <= (minuteUpperHours / (365 * 24))) return { unit: 'minute', step: canonicalStep('minute'), showLabels: true };
+  // Hour-level when span <= configured days
+  if (y <= (hourUpperDays / 365)) return { unit: 'hour', step: y <= (3 / 365) ? 1 : canonicalStep('hour'), showLabels: true };
+  // Days at the smallest spans
+  if (y <= dayUpperYears) return { unit: 'day', step: canonicalStep('day'), showLabels: true };
+  // Weeks before months
+  if (y <= weekUpperYears) return { unit: 'week', step: canonicalStep('week'), showLabels: true };
+  // Months preferred: monthly when <= 1 year
+  if (y <= 1) return { unit: 'month', step: 1, showLabels: true };
+  // Quarters (or canonical month step) up to monthUpperYears
+  if (y <= monthUpperYears) return { unit: 'month', step: canonicalStep('month'), showLabels: true };
   // Year-level beyond that
   if (y <= 40) return { unit: 'year', step: 1, showLabels: true };
   if (y <= 120) return { unit: 'year', step: 5, showLabels: true };
@@ -74,7 +93,10 @@ export function getMarkerStepByScale(scale) {
 
 export function buildDecadeMarkers(domain, scale) {
   const [min, max] = domain;
-  const step = getMarkerStepByScale(scale);
+  const S = Math.max(1e-9, Number(scale) || 1);
+  const visibleSpanYears = (max - min) / S;
+  const cfg = getAxisTickConfigBySpan(visibleSpanYears);
+  const step = cfg.unit === 'year' ? cfg.step : 1;
   const start = Math.floor(min / step) * step;
   const markers = [];
   for (let y = start; y <= max; y += step) {
