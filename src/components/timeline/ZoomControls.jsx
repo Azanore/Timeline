@@ -1,6 +1,7 @@
 import { useContext, useMemo, useEffect, useCallback } from 'react';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { snapScale, clampPan } from '../../utils';
+import { snapScale, clampPan, getAdaptiveScaleBounds } from '../../utils';
+import { useTimeline } from '../../hooks/useTimeline';
 import CONFIG from '../../config/index.js';
 
 export default function ZoomControls() {
@@ -9,37 +10,42 @@ export default function ZoomControls() {
   const pan = ctx?.viewport?.pan ?? 0;
   const setScale = ctx?.setScale ?? (() => {});
   const setPan = ctx?.setPan ?? (() => {});
+  const { domain } = useTimeline();
 
   const pretty = useMemo(() => Math.round(scale * 100) / 100, [scale]);
 
-  const clamp = (v) => Math.min(CONFIG.zoom.scaleMax, Math.max(CONFIG.zoom.scaleMin, v));
+  const clampScale = (v) => {
+    const b = getAdaptiveScaleBounds(domain);
+    return Math.min(b.max, Math.max(b.min, v));
+  };
 
   const onKey = useCallback((e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) return;
     if (e.key === '+') {
       e.preventDefault();
-      const next = snapScale(clamp(scale + CONFIG.zoom.step));
+      const next = snapScale(clampScale(scale + CONFIG.zoom.step));
       setScale(next);
       const clampedPan = clampPan(pan, next);
       if (clampedPan !== pan) setPan(clampedPan);
     }
     if (e.key === '=') {
       e.preventDefault();
-      const next = snapScale(clamp(scale + CONFIG.zoom.step));
+      const next = snapScale(clampScale(scale + CONFIG.zoom.step));
       setScale(next);
       const clampedPan = clampPan(pan, next);
       if (clampedPan !== pan) setPan(clampedPan);
     }
     if (e.key === '-') {
       e.preventDefault();
-      const next = snapScale(clamp(scale - CONFIG.zoom.step));
+      const next = snapScale(clampScale(scale - CONFIG.zoom.step));
       setScale(next);
       const clampedPan = clampPan(pan, next);
       if (clampedPan !== pan) setPan(clampedPan);
     }
     if (e.key === '0') {
       e.preventDefault();
-      const next = CONFIG.zoom.reset;
+      const b = getAdaptiveScaleBounds(domain);
+      const next = Math.min(Math.max(CONFIG.zoom.reset, b.min), b.max);
       setScale(next);
       const clampedPan = clampPan(pan, next);
       if (clampedPan !== pan) setPan(clampedPan);
@@ -56,18 +62,18 @@ export default function ZoomControls() {
       <button
         className="px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
         aria-label="Zoom out" title="Zoom out"
-        onClick={() => { const next = snapScale(clamp(scale - CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
+        onClick={() => { const next = snapScale(clampScale(scale - CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
       >-</button>
       <span className="text-sm tabular-nums min-w-[56px] text-center">{pretty}x</span>
       <button
         className="px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
         aria-label="Zoom in" title="Zoom in"
-        onClick={() => { const next = snapScale(clamp(scale + CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
+        onClick={() => { const next = snapScale(clampScale(scale + CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
       >+</button>
       <button
         className="ml-2 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
         aria-label="Reset zoom" title="Reset zoom"
-        onClick={() => { const next = CONFIG.zoom.reset; setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
+        onClick={() => { const b = getAdaptiveScaleBounds(domain); const next = Math.min(Math.max(CONFIG.zoom.reset, b.min), b.max); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
       >Reset</button>
     </div>
   );

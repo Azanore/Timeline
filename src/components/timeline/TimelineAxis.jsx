@@ -1,6 +1,6 @@
 import { useContext, useMemo } from 'react';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { buildLinearScaler, buildDecadeMarkers, formatUTCMonthShort, formatUTCYear, getAxisTickConfig, toYearFraction } from '../../utils';
+import { buildLinearScaler, buildDecadeMarkers, formatUTCMonthShort, formatUTCYear, getAxisTickConfigBySpan, toYearFraction } from '../../utils';
 import CONFIG from '../../config/index.js';
 
 /**
@@ -18,8 +18,8 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
 
   const markers = useMemo(() => buildDecadeMarkers(domain, scale), [domain, scale]);
   const scaler = useMemo(() => buildLinearScaler(domain), [domain]);
-  const tickCfg = useMemo(() => getAxisTickConfig(scale), [scale]);
-
+  // Compute visible range to derive span-based tick strategy
+  
   // Compute visible year range given current scale and pan
   const visibleRange = useMemo(() => {
     // uScaled = (u - 0.5) * scale + 0.5 + pan
@@ -34,6 +34,16 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
     const pad = (b - a) * CONFIG.axis.visiblePadRatio;
     return [a - pad, b + pad];
   }, [pan, scale, scaler]);
+
+  const tickCfg = useMemo(() => {
+    const span = Math.max(1e-9, (visibleRange?.[1] ?? 1) - (visibleRange?.[0] ?? 0));
+    return getAxisTickConfigBySpan(span);
+  }, [visibleRange]);
+
+  // When we switch to weeks (and finer), move year markers to the top of the axis
+  const yearsOnTop = useMemo(() => {
+    return tickCfg?.unit && ['month', 'week', 'day', 'hour', 'minute'].includes(tickCfg.unit);
+  }, [tickCfg?.unit]);
 
   // Build finer ticks (months/days/hours) within visible range
   const fineTicks = useMemo(() => {
@@ -94,6 +104,56 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
         }
         if (count > maxTicks) break;
       }
+    } else if (unit === 'minute') {
+      const startYear = Math.floor(vMin);
+      const endYear = Math.ceil(vMax);
+      const maxTicks = CONFIG.axis.maxMinuteTicks; // safety cap
+      let count = 0;
+      for (let y = startYear; y <= endYear; y++) {
+        for (let m = 1; m <= 12; m++) {
+          const daysInThisMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+          for (let d = 1; d <= daysInThisMonth; d++) {
+            for (let h = 0; h < 24; h++) {
+              for (let min = 0; min < 60; min += step) {
+                const yf = toYearFraction({ year: y, month: m, day: d, hour: h, minute: min });
+                if (yf == null || yf < vMin || yf > vMax) continue;
+                items.push({ type: 'minute', y, m, d, h, min, yf });
+                if (++count > maxTicks) break;
+              }
+              if (count > maxTicks) break;
+            }
+            if (count > maxTicks) break;
+          }
+          if (count > maxTicks) break;
+        }
+        if (count > maxTicks) break;
+      }
+    } else if (unit === 'week') {
+      // ISO week: Monday 00:00
+      const maxTicks = CONFIG.axis.maxDayTicks; // reuse day cap (weeks are fewer)
+      let count = 0;
+      // Start from the beginning of span
+      const startDate = new Date(Date.UTC(Math.floor(vMin), 0, 1, 0, 0, 0, 0));
+      // Move to vMin date
+      const vMinYear = Math.floor(vMin);
+      const vMinMsBase = Date.UTC(vMinYear, 0, 1, 0, 0, 0, 0);
+      const fracMs = (vMin - vMinYear) * (Date.UTC(vMinYear + 1, 0, 1) - vMinMsBase);
+      const firstMs = vMinMsBase + Math.max(0, Math.floor(fracMs));
+      let d = new Date(firstMs);
+      // Shift to next Monday
+      const dow = d.getUTCDay(); // 0=Sun,1=Mon,...6=Sat
+      const deltaToMon = dow === 1 ? 0 : (dow === 0 ? 1 : (8 - dow));
+      d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + deltaToMon, 0, 0, 0, 0));
+      while (true) {
+        const y = d.getUTCFullYear();
+        const m = d.getUTCMonth() + 1;
+        const day = d.getUTCDate();
+        const yf = toYearFraction({ year: y, month: m, day });
+        if (yf == null || yf > vMax) break;
+        if (yf >= vMin) items.push({ type: 'week', y, m, d: day, yf });
+        if (++count > maxTicks) break;
+        d = new Date(Date.UTC(y, m - 1, day + 7, 0, 0, 0, 0));
+      }
     }
     return items;
   }, [tickCfg.unit, tickCfg.step, visibleRange]);
@@ -105,26 +165,50 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
       {markers.map((y) => {
         const u = scaler.toUnit(y);
         const uScaled = (u - 0.5) * scale + 0.5 + pan; // scale around center, then pan
-        const left = Math.max(0, Math.min(100, uScaled * 100));
+        const leftPct = uScaled * 100;
+        if (leftPct < 0 || leftPct > 100) return null; // skip out-of-view markers instead of clamping
         return (
           <div
             key={y}
-            className="absolute top-6 text-[11px] text-slate-600 select-none"
-            style={{ left: `${left}%`, transform: 'translateX(-50%)' }}
+            className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none`}
+            style={{ left: `${leftPct}%`, transform: 'translateX(-50%)' }}
           >
-            <div className="w-px h-3 bg-slate-400 mx-auto" />
-            <div className="mt-1 tabular-nums">{formatUTCYear(y)}</div>
+            {yearsOnTop ? (
+              <>
+                <div className="mb-1 tabular-nums">{formatUTCYear(y)}</div>
+                <div className="w-px h-3 bg-slate-400 mx-auto" />
+              </>
+            ) : (
+              <>
+                <div className="w-px h-3 bg-slate-400 mx-auto" />
+                <div className="mt-1 tabular-nums">{formatUTCYear(y)}</div>
+              </>
+            )}
           </div>
         );
       })}
-      {fineTicks.map((it) => {
-        const u = scaler.toUnit(it.yf);
-        const uScaled = (u - 0.5) * scale + 0.5 + pan;
-        const left = Math.max(0, Math.min(100, uScaled * 100));
-        const isMajor = (it.type === 'month' && it.m === 1) || (it.type === 'day' && it.d === 1) || (it.type === 'hour' && it.h === 0);
-        const label = (() => {
+      {(() => {
+        // Decimate labels to avoid overcrowding
+        const maxLabels = CONFIG.axis.maxLabels || 12;
+        const stride = Math.max(1, Math.ceil(fineTicks.length / maxLabels));
+        const yearSet = new Set(markers);
+        return fineTicks.map((it, idx) => {
+          const u = scaler.toUnit(it.yf);
+          const uScaled = (u - 0.5) * scale + 0.5 + pan;
+          const leftPct = uScaled * 100;
+          if (leftPct < 0 || leftPct > 100) return null; // skip out-of-view fine ticks
+          const isMajor = (it.type === 'month' && it.m === 1) || (it.type === 'day' && it.d === 1) || (it.type === 'hour' && it.h === 0);
+          const label = (() => {
           if (!tickCfg.showLabels) return '';
-          if (it.type === 'month') return `${formatUTCMonthShort(it.y, it.m)}${isMajor ? ' ' + formatUTCYear(it.y) : ''}`;
+          // Month: suppress January if year marker exists at same spot
+          if (it.type === 'month') {
+            if (it.m === 1 && yearSet.has(it.y)) return '';
+            return `${formatUTCMonthShort(it.y, it.m)}`;
+          }
+          if ((idx % stride) !== 0 && (it.type === 'hour' || it.type === 'minute')) {
+            // For dense time, allow more labels but still decimate
+            return '';
+          }
           if (it.type === 'day') {
             try {
               const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
@@ -132,19 +216,52 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
               return (isMajor ? fmt.format(d) + ' ' + formatUTCYear(it.y) : fmt.format(d));
             } catch { return `${it.d}`; }
           }
-          if (it.type === 'hour') return `${String(it.h).padStart(2, '0')}:00`;
+          if (it.type === 'week') {
+            try {
+              const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
+              const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+              return fmt.format(d);
+            } catch { return ''; }
+          }
+          if (it.type === 'hour') {
+            const time = `${String(it.h).padStart(2, '0')}:00`;
+            if (CONFIG.axis.contextLabels) {
+              // Add parent date periodically
+              if (idx % stride === 0 || isMajor) {
+                try {
+                  const d = new Date(Date.UTC(it.y, (it.m || 1) - 1, it.d || 1));
+                  const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                  return `${time} • ${fmt.format(d)}`;
+                } catch {}
+              }
+            }
+            return time;
+          }
+          if (it.type === 'minute') {
+            const time = `${String(it.h).padStart(2, '0')}:${String(it.min).padStart(2, '0')}`;
+            if (CONFIG.axis.contextLabels) {
+              if (idx % stride === 0 || isMajor) {
+                try {
+                  const d = new Date(Date.UTC(it.y, (it.m || 1) - 1, it.d || 1));
+                  const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                  return `${time} • ${fmt.format(d)}`;
+                } catch {}
+              }
+            }
+            return time;
+          }
           return '';
-        })();
-        return (
-          <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}`} className="absolute top-8 select-none" style={{ left: `${left}%`, transform: 'translateX(-50%)' }}>
-            <div className={`w-px ${isMajor ? 'h-3 bg-slate-400' : 'h-2 bg-slate-300/80' } mx-auto`} />
-            {label && (
-              <div className="mt-1 text-[10px] text-slate-500 tabular-nums">{label}</div>
-            )}
-          </div>
-        );
-      })}
+          })();
+          return (
+            <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}-${it.min || 0}`} className="absolute top-8 select-none" style={{ left: `${leftPct}%`, transform: 'translateX(-50%)' }}>
+              <div className={`w-px ${isMajor ? 'h-3 bg-slate-400' : 'h-2 bg-slate-300/80' } mx-auto`} />
+              {label && (
+                <div className="mt-1 text-[10px] text-slate-500 tabular-nums">{label}</div>
+              )}
+            </div>
+          );
+        });
+      })()}
     </div>
   );
 }
-

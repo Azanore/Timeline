@@ -1,7 +1,7 @@
 import { useContext, useRef, useState, useCallback, useMemo, useEffect, Fragment } from 'react';
 import TimelineAxis from './TimelineAxis.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { clamp, buildLinearScaler, clampPan, toYearFraction, snapScale, clusterByPosition } from '../../utils';
+import { clamp, buildLinearScaler, clampPan, toYearFraction, snapScale, clusterByPosition, getAdaptiveScaleBounds } from '../../utils';
 import CONFIG from '../../config/index.js';
 import { useEvents } from '../../hooks/useEvents';
 import EventDialog from '../events/EventDialog.jsx';
@@ -106,7 +106,8 @@ export default function Timeline({ domain, lanesByType = false }) {
     const delta = -e.deltaY; // invert: wheel up -> zoom in
     const factor = 1 + clamp(delta / 1000, -CONFIG.zoom.wheelDeltaClampPer1000, CONFIG.zoom.wheelDeltaClampPer1000);
     // Important: do not snap on wheel, or we get stuck at 0.5 with tiny deltas
-    const Snext = clamp(S * factor, CONFIG.zoom.scaleMin, CONFIG.zoom.scaleMax);
+    const bounds = getAdaptiveScaleBounds(domain);
+    const Snext = clamp(S * factor, bounds.min, bounds.max);
     // Keep the point under cursor stationary after zoom
     // Derived from uScaled = (u - 0.5)*S + 0.5 + P, with u = x kept fixed on screen
     const ratio = S === 0 ? 1 : (Snext / S);
@@ -154,7 +155,7 @@ export default function Timeline({ domain, lanesByType = false }) {
       const u = scaler.toUnit(yf);
       const uScaled = (u - 0.5) * scale + 0.5 + pan;
       if (uScaled < -buffer || uScaled > 1 + buffer) return null; // virtualization window
-      const posPct = Math.max(0, Math.min(100, uScaled * 100));
+      const posPct = uScaled * 100;
       const yfEnd = e.end ? toYearFraction(e.end) : null;
       let endPos = null;
       let outEnd = false;
@@ -162,7 +163,7 @@ export default function Timeline({ domain, lanesByType = false }) {
         outEnd = yfEnd < domain[0] || yfEnd > domain[1];
         const ue = scaler.toUnit(yfEnd);
         const ueScaled = (ue - 0.5) * scale + 0.5 + pan;
-        endPos = Math.max(0, Math.min(100, ueScaled * 100));
+        endPos = ueScaled * 100;
       }
       const side = idx % 2 === 0 ? 'above' : 'below';
       const level = idx % 4;
@@ -275,7 +276,8 @@ export default function Timeline({ domain, lanesByType = false }) {
                     title={`${it.count} events`}
                     onClick={() => {
                       // Zoom in and center on cluster
-                      const next = snapScale((viewport?.scale ?? 1) * 1.5);
+                      const bounds = getAdaptiveScaleBounds(domain);
+                      const next = clamp(snapScale((viewport?.scale ?? 1) * 1.5), bounds.min, bounds.max);
                       setScale(next);
                       const centerU = clamp(it.uScaled, 0, 1);
                       const currentScale = next;
@@ -301,30 +303,9 @@ export default function Timeline({ domain, lanesByType = false }) {
             const { e, posPct, endPos, dotClass, side, level, outOfDomain, laneIndex } = it;
             const scaleVal = viewport?.scale ?? 1;
             // Edge-aware alignment to avoid clipping near boundaries
-            const innerTransform = (() => {
-              if (isVertical) {
-                if (posPct < 1) return 'translate(-50%, 0)';
-                if (posPct > 99) return 'translate(-50%, -100%)';
-                return 'translate(-50%, -50%)';
-              } else {
-                if (posPct < 1) return 'translateX(0)';
-                if (posPct > 99) return 'translateX(-100%)';
-                return 'translateX(-50%)';
-              }
-            })();
+            const innerTransform = isVertical ? 'translate(-50%, -50%)' : 'translateX(-50%)';
             // Compute end-dot inner transform similarly
-            const endInnerTransform = (() => {
-              if (!Number.isFinite(endPos)) return 'translate(-50%, -50%)';
-              if (isVertical) {
-                if (endPos < 1) return 'translateY(0)';
-                if (endPos > 99) return 'translateY(-100%)';
-                return 'translateY(-50%)';
-              } else {
-                if (endPos < 1) return 'translateX(0)';
-                if (endPos > 99) return 'translateX(-100%)';
-                return 'translateX(-50%)';
-              }
-            })();
+            const endInnerTransform = isVertical ? 'translate(-50%, -50%)' : 'translateX(-50%)';
             return (
               <Fragment key={`it-${e.id}`}>
                 <div key={e.id} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={

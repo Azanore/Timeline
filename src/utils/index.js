@@ -32,7 +32,7 @@ export function buildLinearScaler(domain) {
 
 // Adaptive axis ticks with clear thresholds for different time units
 export function getAxisTickConfig(scale) {
-  // Clear thresholds for decades/years/months/days/hours
+  // Legacy scale-based thresholds (kept for compatibility)
   if (scale >= 50) return { unit: 'hour', step: 1, showLabels: true };
   if (scale >= 25) return { unit: 'hour', step: 6, showLabels: true };
   if (scale >= 15) return { unit: 'day', step: 1, showLabels: true };
@@ -44,6 +44,26 @@ export function getAxisTickConfig(scale) {
   if (scale >= 1) return { unit: 'year', step: 10, showLabels: true }; // decades
   if (scale >= 0.5) return { unit: 'year', step: 20, showLabels: false };
   return { unit: 'year', step: 50, showLabels: false };
+}
+
+// New: span-based tick config for adaptive axis independent of abstract scale
+export function getAxisTickConfigBySpan(visibleSpanYears) {
+  const y = Math.max(visibleSpanYears, 1e-9);
+  // Minute-level when span <= ~6 hours
+  if (y <= (6 / (365 * 24))) return { unit: 'minute', step: 15, showLabels: true };
+  // Hour-level when span <= ~7 days (delayed to keep day labels longer)
+  if (y <= 7 / 365) return { unit: 'hour', step: y <= (3 / 365) ? 1 : 3, showLabels: true };
+  // Day-level (step 1) when span <= ~1 month (~0.08 years)
+  if (y <= 0.08) return { unit: 'day', step: 1, showLabels: true };
+  // Week-level when span <= ~6 months
+  if (y <= 0.5) return { unit: 'week', step: 1, showLabels: true };
+  // Month-level when span <= ~12 years
+  if (y <= 12) return { unit: 'month', step: y <= 4 ? 1 : 3, showLabels: true };
+  // Year-level beyond that
+  if (y <= 40) return { unit: 'year', step: 1, showLabels: true };
+  if (y <= 120) return { unit: 'year', step: 5, showLabels: true };
+  if (y <= 300) return { unit: 'year', step: 10, showLabels: true };
+  return { unit: 'year', step: 20, showLabels: false };
 }
 
 // Legacy function for backward compatibility - now uses new adaptive system
@@ -80,6 +100,16 @@ export function clampPan(pan, scale = 1) {
   // P in [-(S-1)/2, +(S-1)/2]
   const bound = (S - 1) / 2;
   return clamp(Number(pan) || 0, -bound, bound);
+}
+
+// Compute adaptive scale bounds based on domain span and config target min visible span
+export function getAdaptiveScaleBounds(domain) {
+  const span = Math.max(1e-9, (domain?.[1] ?? 1) - (domain?.[0] ?? 0));
+  const minVisible = Math.max(1e-9, CONFIG.zoom.adaptive?.minVisibleSpanYears || (1 / 365));
+  const maxScaleBySpan = span / minVisible; // visibleSpanYears = span / scale >= minVisible
+  const max = clamp(maxScaleBySpan, CONFIG.zoom.scaleMax, CONFIG.zoom.adaptive?.maxScaleCap || Infinity);
+  const min = Math.max(CONFIG.zoom.adaptive?.minScaleFloor || 0.25, CONFIG.zoom.scaleMin);
+  return { min, max };
 }
 
 // Compare two partial date objects with coherent defaults.

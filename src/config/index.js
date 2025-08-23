@@ -22,20 +22,38 @@ const CONFIG = {
     debounceMs: 300,
   },
   zoom: {
-    scaleMin: 0.1,
+    // Base bounds; actual runtime bounds become adaptive to domain span
+    scaleMin: 0.5,
     scaleMax: 5,
     step: 0.1,
     reset: 1,
     wheelDeltaClampPer1000: 0.25, // clamp of delta/1000 on wheel
     snapLevels: [0.5, 1, 2, 4, 5],
     snapThreshold: 0.06,
+    adaptive: {
+      // Minimum visible span in years at max zoom-in (controls how far you can zoom in)
+      // Example: 1 / (365 * 24) ~= one hour, 1 / (365 * 24 * 60) ~= one minute
+      minVisibleSpanYears: 1 / (365 * 24), // one hour
+      // Hard caps to keep math stable regardless of range
+      maxScaleCap: 1000000,
+      minScaleFloor: 0.25,
+    },
   },
   axis: {
     defaultDomain: [1990, 2030],
     visiblePadRatio: 0.05, // 5% label pad
     domainPadRatio: 0.1, // 10% padding around min/max from events
+    // Tick density controls
+    maxLabels: 14,
+    minLabelSpacingPx: 42,
     maxDayTicks: 1200,
     maxHourTicks: 1500,
+    maxMinuteTicks: 3000,
+    // Canonical tick configuration
+    canonicalTicks: true,
+    contextLabels: true,
+    minuteStep: 15,
+    weekStart: 'monday', // 'monday' or 'sunday'
   },
   timeline: {
     virtualBuffer: 0.1, // 10% outside viewport
