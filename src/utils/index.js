@@ -200,6 +200,120 @@ export function toUTCDate({ year, month = 1, day = 1, hour = 0, minute = 0 } = {
   return new Date(ms);
 }
 
+// Convert fractional year to a UTC Date aligned within that year
+export function yfToUTCDate(yf) {
+  const y = Math.floor(Number(yf));
+  if (!Number.isFinite(y)) return null;
+  const frac = Math.max(0, Math.min(0.999999999, Number(yf) - y));
+  const base = Date.UTC(y, 0, 1, 0, 0, 0, 0);
+  const next = Date.UTC(y + 1, 0, 1, 0, 0, 0, 0);
+  const ms = base + frac * (next - base);
+  return new Date(ms);
+}
+
+// Wrapper: compute fractional year from a UTC Date using existing toYearFraction
+export function utcDateToYearFraction(date) {
+  if (!(date instanceof Date)) return null;
+  return toYearFraction({
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
+  });
+}
+
+// Align a UTC Date to the start of the specified unit (UTC semantics)
+// unit: 'year' | 'month' | 'week' | 'day' | 'hour' | 'minute'
+export function alignToUnitStartUTC(date, unit) {
+  if (!(date instanceof Date)) return null;
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth();
+  const d = date.getUTCDate();
+  const hh = date.getUTCHours();
+  const mm = date.getUTCMinutes();
+  switch (unit) {
+    case 'year':
+      return new Date(Date.UTC(y, 0, 1, 0, 0, 0, 0));
+    case 'month':
+      return new Date(Date.UTC(y, m, 1, 0, 0, 0, 0));
+    case 'week': {
+      // ISO week start (Monday). getUTCDay(): Sun=0..Sat=6; ISO = (d+6)%7 gives Mon=0..Sun=6
+      const dow = date.getUTCDay();
+      const iso = (dow + 6) % 7;
+      const startDay = d - iso; // move back to Monday
+      return new Date(Date.UTC(y, m, startDay, 0, 0, 0, 0));
+    }
+    case 'day':
+      return new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
+    case 'hour':
+      return new Date(Date.UTC(y, m, d, hh, 0, 0, 0));
+    case 'minute':
+      return new Date(Date.UTC(y, m, d, hh, mm, 0, 0));
+    default:
+      return new Date(date.getTime());
+  }
+}
+
+// Advance a UTC Date by a given unit and step; returns a new Date aligned to unit start
+export function nextTickUTC(date, unit, step = 1) {
+  if (!(date instanceof Date)) return null;
+  const s = Math.max(1, Number(step) || 1);
+  const d0 = alignToUnitStartUTC(date, unit) || date;
+  const y = d0.getUTCFullYear();
+  const m = d0.getUTCMonth();
+  const d = d0.getUTCDate();
+  const hh = d0.getUTCHours();
+  const mm = d0.getUTCMinutes();
+  switch (unit) {
+    case 'year': return new Date(Date.UTC(y + s, 0, 1, 0, 0, 0, 0));
+    case 'month': return new Date(Date.UTC(y, m + s, 1, 0, 0, 0, 0));
+    case 'week': return new Date(Date.UTC(y, m, d + 7 * s, 0, 0, 0, 0));
+    case 'day': return new Date(Date.UTC(y, m, d + s, 0, 0, 0, 0));
+    case 'hour': return new Date(Date.UTC(y, m, d, hh + s, 0, 0, 0));
+    case 'minute': return new Date(Date.UTC(y, m, d, hh, mm + s, 0, 0));
+    default: return new Date(d0.getTime());
+  }
+}
+
+// Marker label formatter based on the unit
+export function formatMarkerLabelUTC(date, unit) {
+  if (!(date instanceof Date)) return '';
+  try {
+    switch (unit) {
+      case 'year':
+        return new Intl.DateTimeFormat(undefined, { year: 'numeric', timeZone: 'UTC' }).format(date);
+      case 'month':
+        return new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
+      case 'week':
+      case 'day':
+        return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
+      case 'hour':
+        return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(date);
+      case 'minute':
+        return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(date);
+      default:
+        return new Intl.DateTimeFormat(undefined, { year: 'numeric', timeZone: 'UTC' }).format(date);
+    }
+  } catch {
+    // Fallbacks
+    const y = date.getUTCFullYear();
+    const m = date.getUTCMonth() + 1;
+    const d = date.getUTCDate();
+    const hh = String(date.getUTCHours()).padStart(2, '0');
+    const mm = String(date.getUTCMinutes()).padStart(2, '0');
+    switch (unit) {
+      case 'year': return String(y);
+      case 'month': return `${formatUTCMonthShort(y, m)} ${y}`;
+      case 'week':
+      case 'day': return `${d} ${formatUTCMonthShort(y, m)} ${y}`;
+      case 'hour': return `${d} ${formatUTCMonthShort(y, m)} ${y} ${hh}:${mm}`;
+      case 'minute': return `${hh}:${mm}`;
+      default: return String(y);
+    }
+  }
+}
+
 export function formatUTCMonthShort(year, month) {
   const d = toUTCDate({ year, month: Math.max(1, Math.min(12, month)) });
   try {

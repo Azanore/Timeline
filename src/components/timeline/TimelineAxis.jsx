@@ -1,7 +1,8 @@
 import { useContext, useMemo } from 'react';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { buildLinearScaler, formatUTCMonthShort, formatUTCYear, getAxisTickConfigBySpan, toYearFraction } from '../../utils';
+import { buildLinearScaler, formatUTCMonthShort, formatUTCYear, getAxisTickConfigBySpan, alignToUnitStartUTC, utcDateToYearFraction, yfToUTCDate, formatMarkerLabelUTC, nextTickUTC } from '../../utils';
 import CONFIG from '../../config/index.js';
+import { getAxisPlan } from '../../utils/axisPlanner.js';
 
 /**
  * @typedef {Object} TimelineAxisProps
@@ -34,24 +35,74 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
     return [a - pad, b + pad];
   }, [pan, scale, scaler]);
 
+  const usePlanner = CONFIG.axis?.plannerEnabled === true;
   const tickCfg = useMemo(() => {
-    // Use span derived ONLY from zoom level to keep ticks stable while panning
+    if (usePlanner) {
+      // Derive unit/step from planner for full coherence
+      const plan = getAxisPlan({ domain, scale, pan, scaler });
+      return { unit: plan.unit, step: plan.step, showLabels: true };
+    }
+    // Legacy: span derived ONLY from zoom level to keep ticks stable while panning
     const spanByScale = Math.max(1e-9, (domain?.[1] ?? 1) - (domain?.[0] ?? 0)) / Math.max(1e-9, scale || 1);
     return getAxisTickConfigBySpan(spanByScale);
-  }, [domain, scale]);
+  }, [domain, scale, pan, scaler, usePlanner]);
 
-  // Year markers derived from visible span and canonical base
+  // Context markers: always show helpful anchors at the top
+  // - year unit: yearly markers by configured step
+  // - month unit: year markers
+  // - week/day units: month-start markers with Mon YYYY
+  // - hour/minute units: day-start markers with D Mon YYYY
   const markers = useMemo(() => {
+    if (usePlanner) {
+      const plan = getAxisPlan({ domain, scale, pan, scaler });
+      return plan.markers || [];
+    }
     const [vMin, vMax] = visibleRange;
-    const rawStart = Math.floor(vMin);
-    const rawEnd = Math.ceil(vMax);
-    const step = tickCfg.unit === 'year' ? (tickCfg.step || 1) : 1; // stable year step from span-based cfg
     const arr = [];
-    const start = Math.ceil(rawStart / step) * step; // align to multiple of step
-    const end = Math.floor(rawEnd / step) * step;
-    for (let y = start; y <= end; y += step) arr.push(y);
+    if (tickCfg.unit === 'year') {
+      const rawStart = Math.floor(vMin);
+      const rawEnd = Math.ceil(vMax);
+      const step = tickCfg.step || 1;
+      const start = Math.ceil(rawStart / step) * step;
+      const end = Math.floor(rawEnd / step) * step;
+      for (let y = start; y <= end; y += step) arr.push({ yf: y, label: formatUTCYear(y) });
+      return arr;
+    }
+    // Helper to push if within range
+    const pushIfIn = (yf, label) => { if (yf >= vMin && yf <= vMax) arr.push({ yf, label }); };
+    if (tickCfg.unit === 'month') {
+      // Add a year marker for the span if present
+      const yStart = Math.floor(vMin);
+      const yEnd = Math.ceil(vMax);
+      for (let y = yStart; y <= yEnd; y++) {
+        pushIfIn(y, formatUTCYear(y));
+      }
+    } else if (tickCfg.unit === 'week' || tickCfg.unit === 'day') {
+      // Month-start markers via helpers
+      const yStart = Math.floor(vMin);
+      const yEnd = Math.ceil(vMax);
+      for (let y = yStart; y <= yEnd; y++) {
+        for (let m = 1; m <= 12; m++) {
+          const d = new Date(Date.UTC(y, m - 1, 1));
+          const yf = utcDateToYearFraction(d);
+          if (yf == null) continue;
+          pushIfIn(yf, formatMarkerLabelUTC(d, 'month'));
+        }
+      }
+    } else if (tickCfg.unit === 'hour' || tickCfg.unit === 'minute') {
+      // Day-start markers via helpers
+      const maxMarkers = CONFIG.axis.maxDayTicks || 1200;
+      let count = 0;
+      let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'day');
+      while (d && utcDateToYearFraction(d) <= vMax && count <= maxMarkers) {
+        const yf = utcDateToYearFraction(d);
+        if (yf != null && yf >= vMin && yf <= vMax) pushIfIn(yf, formatMarkerLabelUTC(d, 'day'));
+        d = nextTickUTC(d, 'day', 1);
+        count++;
+      }
+    }
     return arr;
-  }, [visibleRange, tickCfg.unit, tickCfg.step]);
+  }, [visibleRange, tickCfg.unit, tickCfg.step, usePlanner, domain, scale, pan, scaler]);
 
   // When we switch to weeks (and finer), move year markers to the top of the axis
   const yearsOnTop = useMemo(() => {
@@ -60,6 +111,10 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
 
   // Build finer ticks (months/days/hours) within visible range
   const fineTicks = useMemo(() => {
+    if (usePlanner) {
+      const plan = getAxisPlan({ domain, scale, pan, scaler });
+      return plan.spans || [];
+    }
     const [vMin, vMax] = visibleRange;
     const items = [];
     const unit = tickCfg.unit;
@@ -75,132 +130,171 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
         }
       }
     } else if (unit === 'day') {
-      // Iterate days via UTC Date to handle month lengths/leap years
-      const startYear = Math.floor(vMin);
-      const endYear = Math.ceil(vMax);
       const maxTicks = CONFIG.axis.maxDayTicks; // safety cap
       let count = 0;
-      for (let y = startYear; y <= endYear; y++) {
-        const start = Date.UTC(y, 0, 1, 0, 0, 0, 0);
-        const end = Date.UTC(y + 1, 0, 1, 0, 0, 0, 0);
-        const dayMs = 24 * 60 * 60 * 1000 * step;
-        for (let t = start; t < end; t += dayMs) {
-          const d = new Date(t);
-          const yy = d.getUTCFullYear();
-          const mm = d.getUTCMonth() + 1;
-          const dd = d.getUTCDate();
-          const yf = toYearFraction({ year: yy, month: mm, day: dd });
-          if (yf == null || yf < vMin || yf > vMax) continue;
-          items.push({ type: 'day', y: yy, m: mm, d: dd, yf });
-          if (++count > maxTicks) break;
-        }
-        if (count > maxTicks) break;
+      let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'day');
+      while (d && count <= maxTicks) {
+        const yf = utcDateToYearFraction(d);
+        if (yf == null || yf > vMax) break;
+        if (yf >= vMin) items.push({ type: 'day', y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), yf });
+        d = nextTickUTC(d, 'day', step);
+        count++;
       }
     } else if (unit === 'hour') {
-      const startYear = Math.floor(vMin);
-      const endYear = Math.ceil(vMax);
       const maxTicks = CONFIG.axis.maxHourTicks; // safety cap
       let count = 0;
-      for (let y = startYear; y <= endYear; y++) {
-        for (let m = 1; m <= 12; m++) {
-          const daysInThisMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-          for (let d = 1; d <= daysInThisMonth; d++) {
-            for (let h = 0; h < 24; h += step) {
-              const yf = toYearFraction({ year: y, month: m, day: d, hour: h });
-              if (yf == null || yf < vMin || yf > vMax) continue;
-              items.push({ type: 'hour', y, m, d, h, yf });
-              if (++count > maxTicks) break;
-            }
-            if (count > maxTicks) break;
-          }
-          if (count > maxTicks) break;
-        }
-        if (count > maxTicks) break;
+      let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'hour');
+      while (d && count <= maxTicks) {
+        const yf = utcDateToYearFraction(d);
+        if (yf == null || yf > vMax) break;
+        if (yf >= vMin) items.push({ type: 'hour', y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), yf });
+        d = nextTickUTC(d, 'hour', step);
+        count++;
       }
     } else if (unit === 'minute') {
-      const startYear = Math.floor(vMin);
-      const endYear = Math.ceil(vMax);
       const maxTicks = CONFIG.axis.maxMinuteTicks; // safety cap
       let count = 0;
-      for (let y = startYear; y <= endYear; y++) {
-        for (let m = 1; m <= 12; m++) {
-          const daysInThisMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-          for (let d = 1; d <= daysInThisMonth; d++) {
-            for (let h = 0; h < 24; h++) {
-              for (let min = 0; min < 60; min += step) {
-                const yf = toYearFraction({ year: y, month: m, day: d, hour: h, minute: min });
-                if (yf == null || yf < vMin || yf > vMax) continue;
-                items.push({ type: 'minute', y, m, d, h, min, yf });
-                if (++count > maxTicks) break;
-              }
-              if (count > maxTicks) break;
-            }
-            if (count > maxTicks) break;
-          }
-          if (count > maxTicks) break;
-        }
-        if (count > maxTicks) break;
+      let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'minute');
+      while (d && count <= maxTicks) {
+        const yf = utcDateToYearFraction(d);
+        if (yf == null || yf > vMax) break;
+        if (yf >= vMin) items.push({ type: 'minute', y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), min: d.getUTCMinutes(), yf });
+        d = nextTickUTC(d, 'minute', step);
+        count++;
       }
     } else if (unit === 'week') {
-      // Week alignment: start of week per CONFIG.axis.weekStart at 00:00 UTC
-      const maxTicks = CONFIG.axis.maxDayTicks; // reuse day cap (weeks are fewer)
+      const maxTicks = CONFIG.axis.maxDayTicks; // reuse day cap
       let count = 0;
-      // Start from the beginning of span
-      const startDate = new Date(Date.UTC(Math.floor(vMin), 0, 1, 0, 0, 0, 0));
-      // Move to vMin date
-      const vMinYear = Math.floor(vMin);
-      const vMinMsBase = Date.UTC(vMinYear, 0, 1, 0, 0, 0, 0);
-      const fracMs = (vMin - vMinYear) * (Date.UTC(vMinYear + 1, 0, 1) - vMinMsBase);
-      const firstMs = vMinMsBase + Math.max(0, Math.floor(fracMs));
-      let d = new Date(firstMs);
-      // Shift to the configured week start (Monday=1 or Sunday=0)
-      const desired = (CONFIG.axis?.weekStart === 'sunday') ? 0 : 1;
-      const dow = d.getUTCDay(); // 0=Sun,1=Mon,...6=Sat
-      const delta = (desired - dow + 7) % 7; // 0..6 days to add
-      d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + delta, 0, 0, 0, 0));
-      while (true) {
-        const y = d.getUTCFullYear();
-        const m = d.getUTCMonth() + 1;
-        const day = d.getUTCDate();
-        const yf = toYearFraction({ year: y, month: m, day });
+      let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'day');
+      // Shift to configured week start
+      if (d) {
+        const dow = d.getUTCDay();
+        if (CONFIG.axis?.weekStart === 'sunday') {
+          d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - dow, 0, 0, 0, 0));
+        } else {
+          const iso = (dow + 6) % 7;
+          d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - iso, 0, 0, 0, 0));
+        }
+      }
+      while (d && count <= maxTicks) {
+        const yf = utcDateToYearFraction(d);
         if (yf == null || yf > vMax) break;
-        if (yf >= vMin) items.push({ type: 'week', y, m, d: day, yf });
-        if (++count > maxTicks) break;
-        d = new Date(Date.UTC(y, m - 1, day + 7, 0, 0, 0, 0));
+        if (yf >= vMin) items.push({ type: 'week', y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), yf });
+        d = nextTickUTC(d, 'day', 7);
+        count++;
       }
     }
     return items;
-  }, [tickCfg.unit, tickCfg.step, visibleRange]);
+  }, [tickCfg.unit, tickCfg.step, visibleRange, usePlanner, domain, scale, pan, scaler]);
 
   // Horizontal only
   return (
     <div className="w-full h-16 relative overflow-hidden">
       <div className="absolute inset-x-0 top-8 border-t border-slate-300" />
-      {markers.map((y) => {
-        const u = scaler.toUnit(y);
-        const uScaled = (u - 0.5) * scale + 0.5 + pan; // scale around center, then pan
-        const leftPct = uScaled * 100;
-        if (leftPct < 0 || leftPct > 100) return null; // skip out-of-view markers instead of clamping
-        return (
-          <div
-            key={y}
-            className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none`}
-            style={{ left: `${leftPct}%`, transform: 'translateX(-50%)' }}
-          >
-            {yearsOnTop ? (
-              <>
-                <div className="mb-1 tabular-nums whitespace-nowrap">{formatUTCYear(y)}</div>
-                <div className="w-px h-3 bg-slate-400 mx-auto" />
-              </>
-            ) : (
-              <>
-                <div className="w-px h-3 bg-slate-400 mx-auto" />
-                <div className="mt-1 tabular-nums whitespace-nowrap">{formatUTCYear(y)}</div>
-              </>
-            )}
-          </div>
-        );
-      })}
+      {(() => {
+        // Precompute positions for existing markers
+        const pos = markers.map((mk) => {
+          const u = scaler.toUnit(mk.yf);
+          const uScaled = (u - 0.5) * scale + 0.5 + pan;
+          return { mk, leftPct: uScaled * 100 };
+        });
+        const gap = Math.max(0, CONFIG.axis?.edgePinMinGapPct ?? 2);
+        const minPins = Math.max(0, Math.min(2, CONFIG.axis?.edgePinsMinCount ?? 0));
+
+        // Helpers
+        const inView = (p) => p.leftPct >= 0 && p.leftPct <= 100;
+        const firstInView = pos.find(inView);
+        const lastInView = [...pos].reverse().find(inView);
+
+        // Derive marker unit (top anchors) from span unit
+        const spanUnit = tickCfg.unit;
+        const markerUnit = (spanUnit === 'month' || spanUnit === 'year') ? 'year'
+          : (spanUnit === 'week' || spanUnit === 'day') ? 'month'
+          : 'day';
+        // Build edge synthetic markers from visible range
+        const [vMin, vMax] = visibleRange;
+        // Align edge dates using helpers
+        const leftDate = alignToUnitStartUTC(yfToUTCDate(vMin), markerUnit);
+        const rightDate = alignToUnitStartUTC(yfToUTCDate(vMax), markerUnit);
+        const leftEdge = { yf: utcDateToYearFraction(leftDate), label: formatMarkerLabelUTC(leftDate, markerUnit) };
+        const rightEdge = { yf: utcDateToYearFraction(rightDate), label: formatMarkerLabelUTC(rightDate, markerUnit) };
+
+        // Decide whether to show synthetic pins: always honor minPins; handle duplicates by suppressing in-view items instead
+        const showLeftPin = minPins >= 1;
+        const showRightPin = minPins >= 2;
+
+        // Render existing in-view markers (suppress near-edge if pin shown)
+        const rendered = pos.map((p, i) => {
+          if (!inView(p)) return null;
+          if (showLeftPin && p.leftPct <= gap && p.mk.label === leftEdge.label) return null;
+          if (showRightPin && p.leftPct >= (100 - gap) && p.mk.label === rightEdge.label) return null;
+          return (
+            <div
+              key={`mk-${i}-${p.mk.yf}`}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none`}
+              style={{ left: `${p.leftPct}%`, transform: 'translateX(-50%)' }}
+            >
+              {yearsOnTop ? (
+                <>
+                  <div className="mb-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'center' }}>{p.mk.label}</div>
+                  <div className="w-px h-3 bg-slate-400 mx-auto" />
+                </>
+              ) : (
+                <>
+                  <div className="w-px h-3 bg-slate-400 mx-auto" />
+                  <div className="mt-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'center' }}>{p.mk.label}</div>
+                </>
+              )}
+            </div>
+          );
+        });
+
+        // Render synthetic left/right pins
+        if (showLeftPin) {
+          rendered.push(
+            <div
+              key={`mk-pin-left-${leftEdge.yf}`}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none z-10`}
+              style={{ left: '0%', transform: 'translateX(0%)' }}
+            >
+              {yearsOnTop ? (
+                <>
+                  <div className="mb-1 tabular-nums whitespace-nowrap bg-white px-3 pr-6 rounded-sm" style={{ textAlign: 'left' }}>{leftEdge.label}</div>
+                  <div className="w-px h-3 bg-slate-400" />
+                </>
+              ) : (
+                <>
+                  <div className="w-px h-3 bg-slate-400" />
+                  <div className="mt-1 tabular-nums whitespace-nowrap bg-white px-3 pr-6 rounded-sm" style={{ textAlign: 'left' }}>{leftEdge.label}</div>
+                </>
+              )}
+            </div>
+          );
+        }
+        if (showRightPin) {
+          rendered.push(
+            <div
+              key={`mk-pin-right-${rightEdge.yf}`}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none z-10`}
+              style={{ left: '100%', transform: 'translateX(-100%)' }}
+            >
+              {yearsOnTop ? (
+                <>
+                  <div className="mb-1 tabular-nums whitespace-nowrap bg-white px-3 pl-6 rounded-sm" style={{ textAlign: 'right' }}>{rightEdge.label}</div>
+                  <div className="w-px h-3 bg-slate-400 mx-auto" />
+                </>
+              ) : (
+                <>
+                  <div className="w-px h-3 bg-slate-400 mx-auto" />
+                  <div className="mt-1 tabular-nums whitespace-nowrap bg-white px-3 pl-6 rounded-sm" style={{ textAlign: 'right' }}>{rightEdge.label}</div>
+                </>
+              )}
+            </div>
+          );
+        }
+
+        return rendered;
+      })()}
       {(() => {
         // Decimate labels to avoid overcrowding, but keep it STABLE w.r.t. panning
         const maxLabels = CONFIG.axis.maxLabels || 12;
@@ -210,7 +304,12 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
         const perYear = unit === 'minute' ? (365 * 24 * 60) : unit === 'hour' ? (365 * 24) : unit === 'day' ? 365 : unit === 'week' ? 52 : unit === 'month' ? 12 : 1;
         const estimatedTicks = (perYear * spanByScale) / Math.max(1e-9, step);
         const stride = Math.max(1, Math.ceil(estimatedTicks / maxLabels));
-        const yearSet = new Set(markers);
+        // Build a set of integer years from markers whose label looks like a year
+        const yearSet = new Set(
+          markers
+            .map(m => (/^[-+]?\d{1,6}$/.test(String(m.label)) ? Math.trunc(m.yf) : null))
+            .filter(v => v != null)
+        );
         return fineTicks.map((it, idx) => {
           const u = scaler.toUnit(it.yf);
           const uScaled = (u - 0.5) * scale + 0.5 + pan;

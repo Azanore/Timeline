@@ -64,6 +64,14 @@ const CONFIG = {
     contextLabels: true,
     minuteStep: 15,
     weekStart: 'monday', // 'monday' or 'sunday'
+    // Feature flag for the new two-track axis planner (markers + spans)
+    plannerEnabled: false,
+    // Sticky edge markers: if the first/last in-view marker is within this percent from the edge, skip pinning
+    edgePinMinGapPct: 2,
+    // Ensure at least this many edge pins (0..2). Recommended: 2 (both edges)
+    edgePinsMinCount: 2,
+    // Hysteresis to avoid unit flicker when zoom changes slightly
+    plannerHysteresisScalePct: 0.08, // if |Δscale|/prevScale < 8% and unit changes, keep previous unit
   },
   timeline: {
     virtualBuffer: 0.1, // 10% outside viewport
