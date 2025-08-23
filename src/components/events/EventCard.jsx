@@ -14,7 +14,7 @@ import CONFIG from '../../config/index.js';
  * Adaptive event card displayed on the timeline instead of a small dot.
  * Content density adjusts with zoom scale.
  */
-export default function EventCard({ event, scale, selected = false, onClick }) {
+export default function EventCard({ event, scale, selected = false, onClick, fullWidth = false, forceFull = false, showBody = true }) {
   const tier = scale >= 1.5 ? 'max' : scale >= 0.8 ? 'mid' : 'min';
 
   const borderColorClass = useMemo(() => {
@@ -51,10 +51,10 @@ export default function EventCard({ event, scale, selected = false, onClick }) {
     return e ? `${s} → ${e}` : s;
   }, [event]);
 
-  // Tier-specific sizing
-  const sizeClasses = tier === 'min'
-    ? 'inline-flex max-w-none' // content-sized width when only title is shown
-    : 'block max-w-[140px]'; // slightly reduced max width for mid/max tiers
+  // Sizing: if fullWidth, span the full column; otherwise keep tier-based sizing
+  const sizeClasses = fullWidth
+    ? 'block w-full'
+    : (tier === 'min' ? 'inline-flex max-w-none' : 'block max-w-[140px]');
 
   return (
     <button
@@ -76,11 +76,11 @@ export default function EventCard({ event, scale, selected = false, onClick }) {
     >
       <div className="flex items-start">
         <div className="min-w-0">
-          <div className={`text-[11px] font-medium text-slate-800 ${tier === 'min' ? 'whitespace-nowrap' : 'truncate'}`}>{event?.title || ''}</div>
-          {tier !== 'min' && (
+          <div className={`text-[11px] font-medium text-slate-800 ${forceFull ? 'truncate' : (tier === 'min' ? 'whitespace-nowrap' : 'truncate')}`}>{event?.title || ''}</div>
+          {(forceFull || tier !== 'min') && (
             <div className="text-[10px] text-slate-500 truncate">{dateText}</div>
           )}
-          {tier === 'max' && event?.body && (
+          {(showBody && (forceFull || tier === 'max') && event?.body) && (
             <p
               className="mt-1 text-[10px] text-slate-700 whitespace-pre-wrap break-words"
               style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}

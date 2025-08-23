@@ -16,7 +16,7 @@ import EventCard from '../events/EventCard.jsx';
  * Timeline container: orchestrates axis, events, and interactions.
  * @param {TimelineProps} props
  */
-export default function Timeline({ domain, lanesByType = false }) {
+export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
   const containerRef = useRef(null);
   const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const [dragging, setDragging] = useState(false);
@@ -132,9 +132,11 @@ export default function Timeline({ domain, lanesByType = false }) {
     const el = containerRef.current;
     if (!el) return;
     const handle = (evt) => {
-      // Prevent page scroll while zooming timeline
-      evt.preventDefault();
-      onWheel(evt);
+      // Zoom only when Ctrl/Cmd is pressed; otherwise let columns scroll naturally
+      if (evt.ctrlKey || evt.metaKey) {
+        evt.preventDefault();
+        onWheel(evt);
+      }
     };
     el.addEventListener('wheel', handle, { passive: false });
     return () => el.removeEventListener('wheel', handle);
@@ -171,10 +173,14 @@ export default function Timeline({ domain, lanesByType = false }) {
       const dotClass = CONFIG.types[e.type]?.dot || 'bg-slate-600';
       const outOfDomain = outStart || outEnd;
       const laneIndex = typeOrder.get(e?.type || 'other') || 0;
-      return { e, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain, laneIndex };
+      return { e, rawU: u, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain, laneIndex };
     }).filter(Boolean);
 
-    // At low zoom, cluster dense points to reduce overdraw
+    // In column mode, render every event (no clustering/overflow), let columns scroll
+    if (columns && columns > 0) {
+      return raw;
+    }
+    // At low zoom, cluster dense points to reduce overdraw (absolute mode only)
     if (scale < CONFIG.clustering.lowZoomThreshold && raw.length > CONFIG.clustering.clusterMinItems) {
       const clusters = clusterByPosition(
         raw.map(it => ({ key: it.e.id, uScaled: it.uScaled, data: it })),
@@ -193,7 +199,7 @@ export default function Timeline({ domain, lanesByType = false }) {
       }
       return merged;
     }
-    // Same-time stacking with overflow within tiny buckets
+    // Same-time stacking with overflow within tiny buckets (absolute mode only)
     const epsilon = CONFIG.events.samePosEpsilonPct; // percent gap to consider same position
     const maxPerGroup = CONFIG.events.maxPerGroup;
     const byPos = [];
@@ -241,13 +247,44 @@ export default function Timeline({ domain, lanesByType = false }) {
     return Math.round(margin + Math.min(laneIndex, laneCount - 1) * gap);
   }, [isVertical, typeOrder]);
 
+  // Build columns (if enabled) by bucketing items using uScaled/posPct
+  const columnsData = useMemo(() => {
+    if (!columns || columns <= 0) return null;
+    // Compute visible raw-unit window
+    const S = viewport?.scale ?? 1;
+    const P = viewport?.pan ?? 0;
+    const visibleStartU = ((0 - 0.5 - P) / S) + 0.5;
+    const visibleEndU = ((1 - 0.5 - P) / S) + 0.5;
+    const spanU = Math.max(1e-9, visibleEndU - visibleStartU);
+    const bandU = spanU / columns;
+    // Anchor bands to a stable world grid (multiples of bandU)
+    const originU = Math.floor(visibleStartU / bandU) * bandU;
+    const phase = ((visibleStartU - originU) / bandU); // 0..1
+    const phasePct = (phase - Math.floor(phase)) * (100 / columns);
+
+    const colArr = Array.from({ length: columns }, () => []);
+    for (const it of items) {
+      const u = typeof it.rawU === 'number' ? it.rawU : null;
+      if (u == null) continue;
+      // Column index against anchored origin (reduces jitter)
+      let idx = Math.floor((u - originU) / bandU);
+      idx -= Math.floor((visibleStartU - originU) / bandU); // normalize to visible window start
+      if (idx < 0) idx = 0;
+      if (idx >= columns) idx = columns - 1;
+      colArr[idx].push(it);
+    }
+    // Stable order: by rawU/posPct then level
+    colArr.forEach(list => list.sort((a, b) => (a.rawU || 0) - (b.rawU || 0) || (a.posPct || 0) - (b.posPct || 0) || (a.level || 0) - (b.level || 0)));
+    return { cols: colArr, phasePct };
+  }, [items, columns, viewport?.scale, viewport?.pan]);
+
   return (
     <div className="w-full h-full flex flex-col">
       <div aria-live="polite" className="sr-only">{liveMsg}</div>
       <TimelineAxis domain={domain} />
       <div
         ref={containerRef}
-        className={`flex-1 min-h-64 border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-hidden`}
+        className={`${columns && columns > 0 ? 'h-64' : 'flex-1 min-h-64'} border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-hidden`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
@@ -264,6 +301,73 @@ export default function Timeline({ domain, lanesByType = false }) {
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
       >
+        {columns && columns > 0 ? (
+          // Column grid mode
+          <div
+            className="grid h-full"
+            style={{
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              // Make grid slightly wider than container so the phase translate reveals movement without blank gaps
+              width: `calc(100% + ${100 / (columns || 1)}%)`,
+              transform: `translateX(-${columnsData?.phasePct || 0}%)`,
+              willChange: 'transform',
+            }}
+            role="list"
+            aria-label="Timeline events (column mode)"
+          >
+            {columnsData?.cols?.map((col, cidx) => (
+              <div key={`col-${cidx}`} className="relative h-full overflow-y-auto no-scrollbar px-1 space-y-2" role="list" aria-label={`Column ${cidx + 1}`}>
+                {col.map((it, idx) => {
+                  if (it.cluster) {
+                    return (
+                      <div key={`cluster-${cidx}-${idx}`} className="flex justify-center">
+                        <button
+                          type="button"
+                          className="px-2 py-1 rounded-full text-xs bg-slate-800 text-white shadow"
+                          title={`${it.count} events`}
+                          onClick={() => {
+                            const bounds = getAdaptiveScaleBounds(domain);
+                            const next = clamp(snapScale((viewport?.scale ?? 1) * 1.5), bounds.min, bounds.max);
+                            setScale(next);
+                            const centerU = clamp(it.uScaled, 0, 1);
+                            const currentScale = next;
+                            const bound = (currentScale - 1) / (2 * currentScale);
+                            const desiredPan = clamp(-(centerU - 0.5) * currentScale, -bound, bound);
+                            setPan(desiredPan);
+                          }}
+                        >
+                          +{it.count}
+                        </button>
+                      </div>
+                    );
+                  }
+                  if (it.overflow) {
+                    return (
+                      <div key={`overflow-${cidx}-${idx}`} className="flex justify-center">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-xs text-slate-700 shadow">+{it.count}</span>
+                      </div>
+                    );
+                  }
+                  const { e } = it;
+                  const scaleVal = viewport?.scale ?? 1;
+                  return (
+                    <div key={`it-${e.id}`} role="listitem">
+                      <EventCard
+                        event={e}
+                        scale={scaleVal}
+                        selected={selected?.id === e.id}
+                        onClick={() => { setSelected(e); setOpenEdit(true); }}
+                        fullWidth
+                        forceFull
+                        showBody={false}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="relative w-full h-full" role="list" aria-label="Timeline events">
           {items.map((it, idx) => {
             if (it.cluster) {
@@ -418,6 +522,7 @@ export default function Timeline({ domain, lanesByType = false }) {
               </Fragment>
             );})}
         </div>
+        )}
       </div>
       <EventDialog open={openEdit} onClose={() => setOpenEdit(false)} event={selected} closeOnSave />
     </div>

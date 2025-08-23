@@ -36,7 +36,7 @@ export default function TimelineView() {
       ) : (
         <>
           <div className="mt-6 flex-1 flex flex-col">
-            <Timeline domain={domain} lanesByType={lanesByType} />
+            <Timeline domain={domain} lanesByType={lanesByType} columns={12} />
           </div>
           <ZoomControls />
         </>
