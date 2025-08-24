@@ -392,22 +392,4 @@ export function snapScale(s) {
 
 // Very lightweight positional clustering by rounding unit positions.
 // items: [{ key, uScaled (0..1), data }]
-export function clusterByPosition(items, bucketSize = 0.015, opts = {}) {
-  const edgePad = Math.max(0, Math.min(0.1, opts.edgePad || 0));
-  const clamp01 = (v) => clamp(v, 0, 1);
-  const buckets = new Map();
-  for (const it of items) {
-    const u = clamp01(it.uScaled || 0);
-    const uPad = edgePad > 0 ? clamp(u, edgePad, 1 - edgePad) : u;
-    const b = Math.round(uPad / bucketSize) * bucketSize;
-    const key = b.toFixed(3);
-    const arr = buckets.get(key) || [];
-    arr.push({ ...it, uScaled: u });
-    buckets.set(key, arr);
-  }
-  return Array.from(buckets.entries()).map(([k, arr]) => ({
-    bucket: clamp01(Number(k)),
-    count: arr.length,
-    items: arr,
-  }));
-}
+// clusterByPosition removed with absolute/columns modes

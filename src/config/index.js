@@ -73,18 +73,7 @@ const CONFIG = {
     // Hysteresis to avoid unit flicker when zoom changes slightly
     plannerHysteresisScalePct: 0.08, // if |Δscale|/prevScale < 8% and unit changes, keep previous unit
   },
-  timeline: {
-    virtualBuffer: 0.1, // 10% outside viewport
-  },
-  clustering: {
-    lowZoomThreshold: 1.2,
-    clusterMinItems: 50,
-    bucketSize: 0.02,
-    edgePad: 0.02,
-  },
   events: {
-    samePosEpsilonPct: 0.4, // percent difference for same-bucket stacking
-    maxPerGroup: 4,
     defaults: {
       startYear: 2000,
       end: { month: 1, day: 1, hour: 0, minute: 0 },

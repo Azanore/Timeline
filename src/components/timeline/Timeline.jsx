@@ -1,7 +1,7 @@
-import { useContext, useRef, useState, useCallback, useMemo, useEffect, Fragment } from 'react';
+import { useContext, useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import TimelineAxis from './TimelineAxis.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
-import { clamp, buildLinearScaler, clampPan, toYearFraction, snapScale, clusterByPosition, getAdaptiveScaleBounds } from '../../utils';
+import { clamp, buildLinearScaler, clampPan, toYearFraction, getAdaptiveScaleBounds } from '../../utils';
 import CONFIG from '../../config/index.js';
 import { useEvents } from '../../hooks/useEvents';
 import EventDialog from '../events/EventDialog.jsx';
@@ -16,7 +16,7 @@ import EventCard from '../events/EventCard.jsx';
  * Timeline container: orchestrates axis, events, and interactions.
  * @param {TimelineProps} props
  */
-export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
+export default function Timeline({ domain }) {
   const containerRef = useRef(null);
   const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const [dragging, setDragging] = useState(false);
@@ -124,7 +124,7 @@ export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
     const el = containerRef.current;
     if (!el) return;
     const handle = (evt) => {
-      // Zoom only when Ctrl/Cmd is pressed; otherwise let columns scroll naturally
+      // Zoom only when Ctrl/Cmd is pressed; plain wheel does not zoom
       if (evt.ctrlKey || evt.metaKey) {
         evt.preventDefault();
         onWheel(evt);
@@ -137,132 +137,10 @@ export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
 
   // Colors/types now sourced from CONFIG.types; toYearFraction from utils
 
-  // Prepare flat list of positioned items with virtualization and (low-zoom) clustering
-  const items = useMemo(() => {
-    const pan = viewport?.pan ?? 0;
-    const scale = viewport?.scale ?? 1;
-    const buffer = CONFIG.timeline.virtualBuffer; // outside viewport buffer
-    const raw = (sortedEvents || []).map((e, idx) => {
-      const yf = toYearFraction(e.start);
-      if (yf == null) return null;
-      const outStart = yf < domain[0] || yf > domain[1];
-      const u = scaler.toUnit(yf);
-      const uScaled = (u - 0.5) * scale + 0.5 + pan;
-      if (uScaled < -buffer || uScaled > 1 + buffer) return null; // virtualization window
-      const posPct = uScaled * 100;
-      const yfEnd = e.end ? toYearFraction(e.end) : null;
-      let endPos = null;
-      let outEnd = false;
-      if (yfEnd != null) {
-        outEnd = yfEnd < domain[0] || yfEnd > domain[1];
-        const ue = scaler.toUnit(yfEnd);
-        const ueScaled = (ue - 0.5) * scale + 0.5 + pan;
-        endPos = ueScaled * 100;
-      }
-      const side = idx % 2 === 0 ? 'above' : 'below';
-      const level = idx % 4;
-      const colorKey = CONFIG.types[e.type]?.key || 'slate';
-      const dotClass = CONFIG.types[e.type]?.dot || 'bg-slate-600';
-      const outOfDomain = outStart || outEnd;
-      return { e, rawU: u, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain };
-    }).filter(Boolean);
+  // Absolute/columns modes removed; rows is the only display mode
 
-    // In column mode, render every event (no clustering/overflow), let columns scroll
-    if (mode === 'columns' && columns && columns > 0) {
-      return raw;
-    }
-    // At low zoom, cluster dense points to reduce overdraw (absolute mode only)
-    if (scale < CONFIG.clustering.lowZoomThreshold && raw.length > CONFIG.clustering.clusterMinItems) {
-      const clusters = clusterByPosition(
-        raw.map(it => ({ key: it.e.id, uScaled: it.uScaled, data: it })),
-        CONFIG.clustering.bucketSize,
-        { edgePad: CONFIG.clustering.edgePad }
-      );
-      const merged = [];
-      for (const c of clusters) {
-        if (c.count >= 4) {
-          const centerU = clamp(c.bucket, 0, 1);
-          const posPct = centerU * 100;
-          merged.push({ cluster: true, count: c.count, uScaled: centerU, posPct });
-        } else {
-          for (const it of c.items) merged.push(it.data);
-        }
-      }
-      return merged;
-    }
-    // Same-time stacking with overflow within tiny buckets (absolute mode only)
-    const epsilon = CONFIG.events.samePosEpsilonPct; // percent gap to consider same position
-    const maxPerGroup = CONFIG.events.maxPerGroup;
-    const byPos = [];
-    const sorted = [...raw].sort((a, b) => a.posPct - b.posPct);
-    let i = 0;
-    while (i < sorted.length) {
-      const start = sorted[i].posPct;
-      const group = [];
-      while (i < sorted.length && Math.abs(sorted[i].posPct - start) <= epsilon) {
-        group.push(sorted[i]);
-        i++;
-      }
-      // assign levels cyclically
-      group.forEach((it, idx) => { it.level = idx % 4; });
-      if (group.length > maxPerGroup) {
-        const visible = group.slice(0, maxPerGroup);
-        const hiddenCount = group.length - maxPerGroup;
-        byPos.push(...visible);
-        byPos.push({ overflow: true, count: hiddenCount, posPct: start, uScaled: visible[0].uScaled });
-      } else {
-        byPos.push(...group);
-      }
-    }
-    return byPos;
-  }, [sortedEvents, scaler, viewport?.scale, viewport?.pan, mode, columns]);
-
-  // Memoized center offset function
-  const stackOffset = useCallback((side, level) => {
-    const center = isVertical
-      ? (containerRef.current?.clientWidth || 600) / 2
-      : (containerRef.current?.clientHeight || 256) / 2;
-    const levelGap = CONFIG.display.levelGap;
-    const offset = (level + 1) * levelGap;
-    return side === 'above' ? center - offset : center + (level * levelGap) + CONFIG.display.extraOffsetPx;
-  }, [isVertical]);
-
-  // laneCenter removed with lanes-by-type feature
-
-  // Build columns (if enabled) by bucketing items using uScaled/posPct
-  const columnsData = useMemo(() => {
-    if (!(mode === 'columns') || !columns || columns <= 0) return null;
-    // Compute visible raw-unit window
-    const S = viewport?.scale ?? 1;
-    const P = viewport?.pan ?? 0;
-    const visibleStartU = ((0 - 0.5 - P) / S) + 0.5;
-    const visibleEndU = ((1 - 0.5 - P) / S) + 0.5;
-    const spanU = Math.max(1e-9, visibleEndU - visibleStartU);
-    const bandU = spanU / columns;
-    // Anchor bands to a stable world grid (multiples of bandU)
-    const originU = Math.floor(visibleStartU / bandU) * bandU;
-    const phase = ((visibleStartU - originU) / bandU); // 0..1
-    const phasePct = (phase - Math.floor(phase)) * (100 / columns);
-
-    const colArr = Array.from({ length: columns }, () => []);
-    for (const it of items) {
-      const u = typeof it.rawU === 'number' ? it.rawU : null;
-      if (u == null) continue;
-      // Column index against anchored origin (reduces jitter)
-      let idx = Math.floor((u - originU) / bandU);
-      idx -= Math.floor((visibleStartU - originU) / bandU); // normalize to visible window start
-      if (idx < 0) idx = 0;
-      if (idx >= columns) idx = columns - 1;
-      colArr[idx].push(it);
-    }
-    // Stable order: by rawU/posPct then level
-    colArr.forEach(list => list.sort((a, b) => (a.rawU || 0) - (b.rawU || 0) || (a.posPct || 0) - (b.posPct || 0) || (a.level || 0) - (b.level || 0)));
-    return { cols: colArr, phasePct };
-  }, [items, mode, columns, viewport?.scale, viewport?.pan]);
-
-  // Build rows (collision-based) when mode === 'rows'
+  // Build rows (collision-based) for rows-only mode
   const rowsData = useMemo(() => {
-    if (mode !== 'rows') return null;
     const width = containerRef.current?.clientWidth || 800;
     const scaleVal = viewport?.scale ?? 1;
     const panVal = viewport?.pan ?? 0;
@@ -300,7 +178,7 @@ export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
       rows[r].end = x + TOTAL_W; // update last end for collision
     }
     return { rows, tier };
-  }, [sortedEvents, mode, viewport?.scale, viewport?.pan, scaler]);
+  }, [sortedEvents, viewport?.scale, viewport?.pan, scaler]);
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -308,7 +186,7 @@ export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
       <TimelineAxis domain={domain} />
       <div
         ref={containerRef}
-        className={`${(mode === 'columns' || mode === 'rows') ? 'h-64 overflow-y-auto overflow-x-hidden no-scrollbar' : 'flex-1 min-h-64 overflow-hidden'} border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
+        className={`h-64 overflow-y-auto overflow-x-hidden no-scrollbar border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
@@ -325,79 +203,12 @@ export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
       >
-        {mode === 'columns' && columns > 0 ? (
-          // Column grid mode
-          <div
-            className="grid h-full"
-            style={{
-              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-              // Make grid slightly wider than container so the phase translate reveals movement without blank gaps
-              width: `calc(100% + ${100 / (columns || 1)}%)`,
-              transform: `translateX(-${columnsData?.phasePct || 0}%)`,
-              willChange: 'transform',
-            }}
-            role="list"
-            aria-label="Timeline events (column mode)"
-          >
-            {columnsData?.cols?.map((col, cidx) => (
-              <div key={`col-${cidx}`} className="relative h-full overflow-y-auto no-scrollbar px-1 space-y-2" role="list" aria-label={`Column ${cidx + 1}`}>
-                {col.map((it, idx) => {
-                  if (it.cluster) {
-                    return (
-                      <div key={`cluster-${cidx}-${idx}`} className="flex justify-center">
-                        <button
-                          type="button"
-                          className="px-2 py-1 rounded-full text-xs bg-slate-800 text-white shadow"
-                          title={`${it.count} events`}
-                          onClick={() => {
-                            const bounds = getAdaptiveScaleBounds(domain);
-                            const next = clamp(snapScale((viewport?.scale ?? 1) * 1.5), bounds.min, bounds.max);
-                            setScale(next);
-                            const centerU = clamp(it.uScaled, 0, 1);
-                            const currentScale = next;
-                            const bound = (currentScale - 1) / (2 * currentScale);
-                            const desiredPan = clamp(-(centerU - 0.5) * currentScale, -bound, bound);
-                            setPan(desiredPan);
-                          }}
-                        >
-                          +{it.count}
-                        </button>
-                      </div>
-                    );
-                  }
-                  if (it.overflow) {
-                    return (
-                      <div key={`overflow-${cidx}-${idx}`} className="flex justify-center">
-                        <span className="px-1.5 py-0.5 rounded bg-slate-200 text-xs text-slate-700 shadow">+{it.count}</span>
-                      </div>
-                    );
-                  }
-                  const { e } = it;
-                  const scaleVal = viewport?.scale ?? 1;
-                  return (
-                    <div key={`it-${e.id}`} role="listitem">
-                      <EventCard
-                        event={e}
-                        scale={scaleVal}
-                        selected={selected?.id === e.id}
-                        onClick={() => { setSelected(e); setOpenEdit(true); }}
-                        fullWidth
-                        forceFull
-                        showBody={false}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        ) : mode === 'rows' ? (
-        // Row mode: auto-height rows via grid overlap; cards positioned with translateX
-        <div className="relative w-full min-h-full space-y-1 py-2" role="list" aria-label="Timeline events (row mode)">
+        {/* Rows-only mode: auto-height rows via grid overlap; cards positioned with translateX */}
+        <div className="relative w-full min-h-full space-y-1 py-1" role="list" aria-label="Timeline events (row mode)">
           {rowsData?.rows?.map((row, rIdx) => (
             <div
               key={`row-${rIdx}`}
-              className={`grid relative w-full ${rIdx % 2 === 0 ? 'bg-slate-50' : 'bg-slate-100'}`}
+              className={`grid relative w-full border-y ${rIdx % 2 === 0 ? 'bg-slate-50 border-slate-300' : 'bg-slate-100 border-slate-300'}`}
               role="list"
               aria-label={`Row ${rIdx + 1}`}
             >
@@ -422,162 +233,7 @@ export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
             </div>
           ))}
         </div>
-        ) : (
-        <div className="relative w-full h-full" role="list" aria-label="Timeline events">
-          {items.map((it, idx) => {
-            if (it.cluster) {
-              const posStyle = isVertical ? { top: `${it.posPct}%`, left: (containerRef.current?.clientWidth || 600) / 2 } : { left: `${it.posPct}%`, top: (containerRef.current?.clientHeight || 256) / 2 };
-              return (
-                <div key={`cluster-${idx}`} className="absolute -translate-x-1/2 -translate-y-1/2" style={posStyle}>
-                  <button
-                    type="button"
-                    className="px-2 py-1 rounded-full text-xs bg-slate-800 text-white shadow"
-                    title={`${it.count} events`}
-                    onClick={() => {
-                      // Zoom in and center on cluster
-                      const bounds = getAdaptiveScaleBounds(domain);
-                      const next = clamp(snapScale((viewport?.scale ?? 1) * 1.5), bounds.min, bounds.max);
-                      setScale(next);
-                      const centerU = clamp(it.uScaled, 0, 1);
-                      const currentScale = next;
-                      const bound = (currentScale - 1) / (2 * currentScale);
-                      // Centering formula derived from uScaled = (u - 0.5) * S + 0.5 + P => P = - (u - 0.5) * S
-                      const desiredPan = clamp(-(centerU - 0.5) * currentScale, -bound, bound);
-                      setPan(desiredPan);
-                    }}
-                  >
-                    +{it.count}
-                  </button>
-                </div>
-              );
-            }
-            if (it.overflow) {
-              const posStyle = isVertical ? { top: `${it.posPct}%`, left: (containerRef.current?.clientWidth || 600) / 2 } : { left: `${it.posPct}%`, top: (containerRef.current?.clientHeight || 256) / 2 };
-              return (
-                <div key={`overflow-${idx}`} className="absolute -translate-x-1/2 -translate-y-1/2" style={posStyle}>
-                  <span className="px-1.5 py-0.5 rounded bg-slate-200 text-xs text-slate-700 shadow">+{it.count}</span>
-                </div>
-              );
-            }
-            const { e, posPct, endPos, dotClass, side, level, outOfDomain } = it;
-            const scaleVal = viewport?.scale ?? 1;
-            // Edge-aware alignment to avoid clipping near boundaries
-            const innerTransform = isVertical ? 'translate(-50%, -50%)' : 'translateX(-50%)';
-            // Compute end-dot inner transform similarly
-            const endInnerTransform = isVertical ? 'translate(-50%, -50%)' : 'translateX(-50%)';
-            return (
-              <Fragment key={`it-${e.id}`}>
-                <div key={e.id} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={
-                  isVertical
-                    ? { top: `${posPct}%`, left: stackOffset(side, level) }
-                    : { left: `${posPct}%`, top: stackOffset(side, level) }
-                } role="listitem">
-              {/* Duration span (if any) - Adaptive rendering by zoom */}
-              {Number.isFinite(endPos) && scaleVal >= 1.5 && (
-                <div
-                  className="absolute rounded"
-                  style={{
-                    ...(isVertical
-                      ? {
-                          top: `${Math.min(posPct, endPos)}%`,
-                          height: `${Math.abs((endPos ?? posPct) - posPct)}%`,
-                          left: `${stackOffset(side, level)}px`,
-                          width: '3px',
-                          minHeight: '3px',
-                        }
-                      : {
-                          left: `${Math.min(posPct, endPos)}%`,
-                          width: `${Math.max(3, Math.abs((endPos ?? posPct) - posPct))}%`,
-                          top: '5px',
-                          height: '3px',
-                          minWidth: '3px',
-                        }
-                    ),
-                    backgroundColor: dotClass.includes('rose') ? '#e11d48' : dotClass.includes('emerald') ? '#059669' : dotClass.includes('blue') ? '#2563eb' : dotClass.includes('violet') ? '#7c3aed' : dotClass.includes('amber') ? '#f59e0b' : '#334155',
-                  }}
-                />
-              )}
-              {/* Mid zoom: thin duration bars */}
-              {Number.isFinite(endPos) && scaleVal >= 0.8 && scaleVal < 1.5 && (
-                <div
-                  className="absolute rounded"
-                  style={{
-                    ...(isVertical
-                      ? {
-                          top: `${Math.min(posPct, endPos)}%`,
-                          height: `${Math.abs((endPos ?? posPct) - posPct)}%`,
-                          left: `${stackOffset(side, level)}px`,
-                          width: '2px',
-                          minHeight: '2px',
-                        }
-                      : {
-                          left: `${Math.min(posPct, endPos)}%`,
-                          width: `${Math.max(2, Math.abs((endPos ?? posPct) - posPct))}%`,
-                          top: '6px',
-                          height: '2px',
-                          minWidth: '2px',
-                        }
-                    ),
-                    backgroundColor: dotClass.includes('rose') ? '#e11d48' : dotClass.includes('emerald') ? '#059669' : dotClass.includes('blue') ? '#2563eb' : dotClass.includes('violet') ? '#7c3aed' : dotClass.includes('amber') ? '#f59e0b' : '#334155',
-                  }}
-                />
-              )}
-              {/* Far zoom: faint connectors */}
-              {Number.isFinite(endPos) && scaleVal < 0.8 && (
-                <div
-                  className="absolute opacity-30"
-                  style={{
-                    ...(isVertical
-                      ? {
-                          top: `${Math.min(posPct, endPos)}%`,
-                          height: `${Math.max(1, Math.abs((endPos ?? posPct) - posPct))}%`,
-                          left: `${stackOffset(side, level)}px`,
-                          width: '1px',
-                          minHeight: '1px',
-                        }
-                      : {
-                          left: `${Math.min(posPct, endPos)}%`,
-                          width: `${Math.max(1, Math.abs((endPos ?? posPct) - posPct))}%`,
-                          top: '7px',
-                          height: '1px',
-                          minWidth: '1px',
-                        }
-                    ),
-                    backgroundColor: '#94a3b8',
-                  }}
-                />
-              )}
-              <div className="relative" style={{ transform: innerTransform }}>
-                <EventCard
-                  event={e}
-                  scale={scaleVal}
-                  selected={selected?.id === e.id}
-                  onClick={() => { setSelected(e); setOpenEdit(true); }}
-                />
-              </div>
-                </div>
-                {/* Far zoom: render an end dot as well (two dots + connector) */}
-                {Number.isFinite(endPos) && scaleVal < 0.8 && (
-                  <div key={`${e.id}-end`} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={
-                    isVertical
-                      ? { top: `${endPos}%`, left: stackOffset(side, level) }
-                      : { left: `${endPos}%`, top: stackOffset(side, level) }
-                  }>
-                    <div className="relative" style={{ transform: endInnerTransform }}>
-                      <button
-                        type="button"
-                        className={`${scaleVal >= 1.5 ? 'w-3 h-3' : scaleVal >= 0.8 ? 'w-2 h-2' : 'w-1.5 h-1.5'} rounded-full shadow mx-auto ${dotClass} ${selected?.id === e.id ? 'ring-2 ring-offset-2 ring-emerald-500' : ''} ${outOfDomain ? 'opacity-60 outline outline-1 outline-slate-400' : ''}`}
-                        aria-label={`${e.title} end (${e.end?.year || ''})${outOfDomain ? ' (out of domain)' : ''}`}
-                        onClick={() => { setSelected(e); setOpenEdit(true); }}
-                        title={`${e.title} end (${e.end?.year || ''})${outOfDomain ? ' • out of domain' : ''}`}
-                      />
-                    </div>
-                  </div>
-                )}
-              </Fragment>
-            );})}
-        </div>
-        )}
+        
       </div>
       <EventDialog open={openEdit} onClose={() => setOpenEdit(false)} event={selected} closeOnSave />
     </div>

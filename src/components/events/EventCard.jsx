@@ -62,7 +62,7 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
       onClick={onClick}
       aria-label={`${event?.title || 'Event'}${dateText ? ` (${dateText})` : ''}`}
       className={[
-        'group text-left border',
+        'group text-left border-l border-r border-y-0',
         'px-2 py-1.5',
         sizeClasses,
         'max-h-[140px] overflow-hidden',
