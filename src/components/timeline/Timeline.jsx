@@ -16,7 +16,7 @@ import EventCard from '../events/EventCard.jsx';
  * Timeline container: orchestrates axis, events, and interactions.
  * @param {TimelineProps} props
  */
-export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
+export default function Timeline({ domain, columns = 0 }) {
   const containerRef = useRef(null);
   const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const [dragging, setDragging] = useState(false);
@@ -30,15 +30,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
   const [liveMsg, setLiveMsg] = useState('');
   const isVertical = false; // Force horizontal layout only
 
-  // Build stable lane order by type
-  const typeOrder = useMemo(() => {
-    const map = new Map();
-    (sortedEvents || []).forEach((e) => {
-      const t = e?.type || 'other';
-      if (!map.has(t)) map.set(t, map.size);
-    });
-    return map;
-  }, [sortedEvents]);
+  // Lanes by type removed; events always stack relative to center
 
   // Orientation responsiveness removed: always horizontal
 
@@ -172,8 +164,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
       const colorKey = CONFIG.types[e.type]?.key || 'slate';
       const dotClass = CONFIG.types[e.type]?.dot || 'bg-slate-600';
       const outOfDomain = outStart || outEnd;
-      const laneIndex = typeOrder.get(e?.type || 'other') || 0;
-      return { e, rawU: u, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain, laneIndex };
+      return { e, rawU: u, uScaled, posPct, endPos, color: colorKey, dotClass, side, level, outOfDomain };
     }).filter(Boolean);
 
     // In column mode, render every event (no clustering/overflow), let columns scroll
@@ -224,7 +215,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
       }
     }
     return byPos;
-  }, [sortedEvents, scaler, viewport?.scale, viewport?.pan, typeOrder]);
+  }, [sortedEvents, scaler, viewport?.scale, viewport?.pan]);
 
   // Memoized center offset function
   const stackOffset = useCallback((side, level) => {
@@ -236,16 +227,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
     return side === 'above' ? center - offset : center + (level * levelGap) + CONFIG.display.extraOffsetPx;
   }, [isVertical]);
 
-  const laneCenter = useCallback((laneIndex) => {
-    const isV = isVertical;
-    const extent = isV ? (containerRef.current?.clientWidth || 600) : (containerRef.current?.clientHeight || 256);
-    const laneCount = Math.max(1, typeOrder.size || 1);
-    if (laneCount <= 1) return Math.floor(extent / 2);
-    const margin = CONFIG.display.laneMarginPx;
-    const usable = Math.max(0, extent - margin * 2);
-    const gap = laneCount > 1 ? (usable / (laneCount - 1)) : 0;
-    return Math.round(margin + Math.min(laneIndex, laneCount - 1) * gap);
-  }, [isVertical, typeOrder]);
+  // laneCenter removed with lanes-by-type feature
 
   // Build columns (if enabled) by bucketing items using uScaled/posPct
   const columnsData = useMemo(() => {
@@ -404,7 +386,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
                 </div>
               );
             }
-            const { e, posPct, endPos, dotClass, side, level, outOfDomain, laneIndex } = it;
+            const { e, posPct, endPos, dotClass, side, level, outOfDomain } = it;
             const scaleVal = viewport?.scale ?? 1;
             // Edge-aware alignment to avoid clipping near boundaries
             const innerTransform = isVertical ? 'translate(-50%, -50%)' : 'translateX(-50%)';
@@ -414,8 +396,8 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
               <Fragment key={`it-${e.id}`}>
                 <div key={e.id} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={
                   isVertical
-                    ? { top: `${posPct}%`, left: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
-                    : { left: `${posPct}%`, top: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
+                    ? { top: `${posPct}%`, left: stackOffset(side, level) }
+                    : { left: `${posPct}%`, top: stackOffset(side, level) }
                 } role="listitem">
               {/* Duration span (if any) - Adaptive rendering by zoom */}
               {Number.isFinite(endPos) && scaleVal >= 1.5 && (
@@ -426,7 +408,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
                       ? {
                           top: `${Math.min(posPct, endPos)}%`,
                           height: `${Math.abs((endPos ?? posPct) - posPct)}%`,
-                          left: `${lanesByType ? laneCenter(laneIndex) : stackOffset(side, level)}px`,
+                          left: `${stackOffset(side, level)}px`,
                           width: '3px',
                           minHeight: '3px',
                         }
@@ -451,7 +433,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
                       ? {
                           top: `${Math.min(posPct, endPos)}%`,
                           height: `${Math.abs((endPos ?? posPct) - posPct)}%`,
-                          left: `${lanesByType ? laneCenter(laneIndex) : stackOffset(side, level)}px`,
+                          left: `${stackOffset(side, level)}px`,
                           width: '2px',
                           minHeight: '2px',
                         }
@@ -476,7 +458,7 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
                       ? {
                           top: `${Math.min(posPct, endPos)}%`,
                           height: `${Math.max(1, Math.abs((endPos ?? posPct) - posPct))}%`,
-                          left: `${lanesByType ? laneCenter(laneIndex) : stackOffset(side, level)}px`,
+                          left: `${stackOffset(side, level)}px`,
                           width: '1px',
                           minHeight: '1px',
                         }
@@ -505,8 +487,8 @@ export default function Timeline({ domain, lanesByType = false, columns = 0 }) {
                 {Number.isFinite(endPos) && scaleVal < 0.8 && (
                   <div key={`${e.id}-end`} className={`absolute ${selected?.id === e.id ? 'z-20' : ''} ${outOfDomain ? 'opacity-60' : ''}`} style={
                     isVertical
-                      ? { top: `${endPos}%`, left: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
-                      : { left: `${endPos}%`, top: lanesByType ? laneCenter(laneIndex) : stackOffset(side, level) }
+                      ? { top: `${endPos}%`, left: stackOffset(side, level) }
+                      : { left: `${endPos}%`, top: stackOffset(side, level) }
                   }>
                     <div className="relative" style={{ transform: endInnerTransform }}>
                       <button
