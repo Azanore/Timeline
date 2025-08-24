@@ -16,7 +16,7 @@ import EventCard from '../events/EventCard.jsx';
  * Timeline container: orchestrates axis, events, and interactions.
  * @param {TimelineProps} props
  */
-export default function Timeline({ domain, columns = 0 }) {
+export default function Timeline({ domain, mode = 'absolute', columns = 0 }) {
   const containerRef = useRef(null);
   const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
   const [dragging, setDragging] = useState(false);
@@ -168,7 +168,7 @@ export default function Timeline({ domain, columns = 0 }) {
     }).filter(Boolean);
 
     // In column mode, render every event (no clustering/overflow), let columns scroll
-    if (columns && columns > 0) {
+    if (mode === 'columns' && columns && columns > 0) {
       return raw;
     }
     // At low zoom, cluster dense points to reduce overdraw (absolute mode only)
@@ -215,7 +215,7 @@ export default function Timeline({ domain, columns = 0 }) {
       }
     }
     return byPos;
-  }, [sortedEvents, scaler, viewport?.scale, viewport?.pan]);
+  }, [sortedEvents, scaler, viewport?.scale, viewport?.pan, mode, columns]);
 
   // Memoized center offset function
   const stackOffset = useCallback((side, level) => {
@@ -231,7 +231,7 @@ export default function Timeline({ domain, columns = 0 }) {
 
   // Build columns (if enabled) by bucketing items using uScaled/posPct
   const columnsData = useMemo(() => {
-    if (!columns || columns <= 0) return null;
+    if (!(mode === 'columns') || !columns || columns <= 0) return null;
     // Compute visible raw-unit window
     const S = viewport?.scale ?? 1;
     const P = viewport?.pan ?? 0;
@@ -258,7 +258,49 @@ export default function Timeline({ domain, columns = 0 }) {
     // Stable order: by rawU/posPct then level
     colArr.forEach(list => list.sort((a, b) => (a.rawU || 0) - (b.rawU || 0) || (a.posPct || 0) - (b.posPct || 0) || (a.level || 0) - (b.level || 0)));
     return { cols: colArr, phasePct };
-  }, [items, columns, viewport?.scale, viewport?.pan]);
+  }, [items, mode, columns, viewport?.scale, viewport?.pan]);
+
+  // Build rows (collision-based) when mode === 'rows'
+  const rowsData = useMemo(() => {
+    if (mode !== 'rows') return null;
+    const width = containerRef.current?.clientWidth || 800;
+    const scaleVal = viewport?.scale ?? 1;
+    const panVal = viewport?.pan ?? 0;
+    // Tiered heights to keep layout predictable (for body visibility only)
+    const tier = scaleVal >= 1.5 ? 'max' : scaleVal >= 0.8 ? 'mid' : 'min';
+    const CARD_W = 160; // fixed card width including border (border-box)
+    const TOTAL_W = CARD_W; // border included via global border-box
+    // Tiny epsilon so touching doesn't oscillate due to float error while panning
+    const EPS = 0.25;
+
+    // Compute uScaled for all events (based on current pan/scale) from raw events
+    const all = sortedEvents.map((e, idx) => {
+      const yf = toYearFraction(e.start);
+      if (yf == null) return null;
+      const u = scaler.toUnit(yf);
+      const uScaled = (u - 0.5) * scaleVal + 0.5 + panVal;
+      return { e, rawU: u, uScaled };
+    }).filter(Boolean);
+
+    // Sort by raw position for stable left-to-right packing
+    all.sort((a, b) => (a.rawU || 0) - (b.rawU || 0));
+
+    /** @type {{end:number, items:Array<{it:any, x:number}>}[]} */
+    const rows = [];
+    for (const it of all) {
+      const centerX = it.uScaled * width;
+      let x = centerX - TOTAL_W / 2;
+      // place into first row where no true overlap; touching is allowed
+      let r = rows.findIndex(rw => (rw.end <= x - EPS));
+      if (r === -1) {
+        rows.push({ end: -Infinity, items: [] });
+        r = rows.length - 1;
+      }
+      rows[r].items.push({ it, x });
+      rows[r].end = x + TOTAL_W; // update last end for collision
+    }
+    return { rows, tier };
+  }, [sortedEvents, mode, viewport?.scale, viewport?.pan, scaler]);
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -266,7 +308,7 @@ export default function Timeline({ domain, columns = 0 }) {
       <TimelineAxis domain={domain} />
       <div
         ref={containerRef}
-        className={`${columns && columns > 0 ? 'h-64' : 'flex-1 min-h-64'} border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-hidden`}
+        className={`${(mode === 'columns' || mode === 'rows') ? 'h-64 overflow-y-auto overflow-x-hidden no-scrollbar' : 'flex-1 min-h-64 overflow-hidden'} border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
@@ -283,7 +325,7 @@ export default function Timeline({ domain, columns = 0 }) {
         onMouseUp={endDrag}
         onMouseLeave={endDrag}
       >
-        {columns && columns > 0 ? (
+        {mode === 'columns' && columns > 0 ? (
           // Column grid mode
           <div
             className="grid h-full"
@@ -349,6 +391,37 @@ export default function Timeline({ domain, columns = 0 }) {
               </div>
             ))}
           </div>
+        ) : mode === 'rows' ? (
+        // Row mode: auto-height rows via grid overlap; cards positioned with translateX
+        <div className="relative w-full min-h-full space-y-1 py-2" role="list" aria-label="Timeline events (row mode)">
+          {rowsData?.rows?.map((row, rIdx) => (
+            <div
+              key={`row-${rIdx}`}
+              className={`grid relative w-full ${rIdx % 2 === 0 ? 'bg-slate-50' : 'bg-slate-100'}`}
+              role="list"
+              aria-label={`Row ${rIdx + 1}`}
+            >
+              {row.items.map(({ it, x }) => {
+                const { e } = it;
+                const scaleVal = viewport?.scale ?? 1;
+                const showBody = scaleVal >= 1.5; // hide at small scale like column mode
+                return (
+                  <div key={`it-${e.id}`} className="col-start-1 row-start-1" style={{ transform: `translateX(${x}px)`, width: '160px' }} role="listitem">
+                    <EventCard
+                      event={e}
+                      scale={scaleVal}
+                      selected={selected?.id === e.id}
+                      onClick={() => { setSelected(e); setOpenEdit(true); }}
+                      fullWidth
+                      forceFull
+                      showBody={showBody}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
         ) : (
         <div className="relative w-full h-full" role="list" aria-label="Timeline events">
           {items.map((it, idx) => {
