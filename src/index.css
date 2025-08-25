@@ -72,6 +72,8 @@ body { margin: 0; }
   img, video, canvas, svg, picture { display: block; max-width: 100%; }
   img { height: auto; }
   svg { inline-size: 1em; block-size: 1em; fill: currentColor; }
+  /* Ensure lucide icons remain stroked (not filled solid) */
+  svg.lucide { fill: none; stroke: currentColor; }
 
   /* Tables and lists */
   table { border-collapse: collapse; }

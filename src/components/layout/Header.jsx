@@ -1,6 +1,7 @@
 import { useTimeline } from '../../hooks/useTimeline';
 import Button from '@/components/ui/Button.jsx';
 import ThemeToggle from '@/components/ui/ThemeToggle.jsx';
+import { Plus } from 'lucide-react';
 
 // Header: app title + global actions (create timeline, theme)
 export default function Header() {
@@ -12,11 +13,12 @@ export default function Header() {
         <h1 className="text-lg font-semibold text-foreground flex-1">Timeline</h1>
 
         <Button
-          className="ml-auto"
+          className="ml-auto gap-2"
           size="md"
           onClick={() => createTimeline(`Timeline ${timelines.length + 1}`)}
         >
-          + New Timeline
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          <span>New Timeline</span>
         </Button>
 
         <ThemeToggle className="ml-2" />

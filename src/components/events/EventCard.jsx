@@ -70,7 +70,7 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
         <div className="min-w-0">
           <div className={`flex items-center gap-1 ${forceFull ? 'truncate' : (tier === 'min' ? 'whitespace-nowrap' : 'truncate')}`}>
             {(forceFull || tier !== 'min') && (
-              <TypeBadge type={event?.type || 'other'} className="shrink-0" />
+              <TypeBadge type={event?.type || 'other'} className="shrink-0" showLabel={false} />
             )}
             <span className="text-[11px] font-medium text-foreground truncate">{event?.title || ''}</span>
           </div>

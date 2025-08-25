@@ -5,6 +5,7 @@ import { useTimeline } from '../../hooks/useTimeline';
 import CONFIG from '../../config/index.js';
 import Toolbar from '@/components/ui/Toolbar.jsx';
 import Button from '@/components/ui/Button.jsx';
+import { ZoomOut, ZoomIn, RotateCcw } from 'lucide-react';
 
 export default function ZoomControls() {
   const ctx = useContext(TimelineContext);
@@ -64,25 +65,26 @@ export default function ZoomControls() {
       <Button
         variant="outline"
         size="sm"
-        aria-label="Zoom out" title="Zoom out"
+        aria-label="Zoom out" title="Zoom out (-)"
         className="px-2 py-1"
         onClick={() => { const next = snapScale(clampScale(scale - CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
-      >-</Button>
+      ><ZoomOut className="h-5 w-5" strokeWidth={2.25} aria-hidden="true" /></Button>
       <span className="text-sm tabular-nums min-w-[56px] text-center">{pretty}x</span>
       <Button
         variant="outline"
         size="sm"
-        aria-label="Zoom in" title="Zoom in"
+        aria-label="Zoom in" title="Zoom in (+/=)"
         className="px-2 py-1"
         onClick={() => { const next = snapScale(clampScale(scale + CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
-      >+</Button>
+      ><ZoomIn className="h-5 w-5" strokeWidth={2.25} aria-hidden="true" /></Button>
       <Button
         variant="outline"
         size="sm"
         className="ml-2 px-2 py-1"
-        aria-label="Reset zoom" title="Reset zoom"
+        aria-label="Reset zoom" title="Reset zoom (0)"
         onClick={() => { const b = getAdaptiveScaleBounds(domain); const next = Math.min(Math.max(CONFIG.zoom.reset, b.min), b.max); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
-      >Reset</Button>
+      ><RotateCcw className="h-5 w-5" strokeWidth={2.25} aria-hidden="true" /></Button>
     </Toolbar>
   );
 }
+

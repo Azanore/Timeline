@@ -6,6 +6,7 @@ import EventForm from './components/events/EventForm.jsx'
 import { useEvents } from './hooks/useEvents'
 import { useToast } from './hooks/useToast'
 import Button from './components/ui/Button.jsx'
+import { Plus } from 'lucide-react'
 
 function App() {
   const { addEvent } = useEvents()
@@ -22,9 +23,11 @@ function App() {
       <Button
         onClick={() => setOpenAdd(true)}
         aria-label="Add Event"
-        className="fixed bottom-6 right-6 rounded-full w-14 h-14 text-2xl shadow-lg"
+        title="Add event"
+        className="fixed bottom-6 right-6 rounded-full w-14 h-14 shadow-lg flex items-center justify-center gap-2 md:w-auto md:h-10 md:px-4"
       >
-        +
+        <Plus className="h-6 w-6" aria-hidden="true" />
+        <span className="hidden md:inline">Add event</span>
       </Button>
 
       <Dialog open={openAdd} onOpenChange={(next) => { if (!next) setOpenAdd(false) }}>
@@ -55,4 +58,5 @@ function App() {
 }
 
 export default App
+
 
