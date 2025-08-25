@@ -5,6 +5,8 @@ import { useState, useMemo, useEffect } from 'react';
 import Button from '../ui/Button.jsx';
 import { useToast } from '../../hooks/useToast';
 import { formatPartialUTC } from '../../utils';
+import TypeBadge from '@/components/ui/TypeBadge.jsx';
+import ConfirmDialog from '@/components/ui/ConfirmDialog.jsx';
 
 /**
  * @typedef {Object} EventDialogProps
@@ -21,6 +23,7 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
   const { updateEvent, removeEvent } = useEvents();
   const toast = useToast();
   const [mode, setMode] = useState('view'); // 'view' | 'edit'
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // Ensure the dialog always opens in view mode and resets on event change
   useEffect(() => {
@@ -43,19 +46,7 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
         <div>
           <h3 className="text-lg font-semibold mb-1">{event.title}</h3>
           <div className="mb-3 text-sm text-slate-600 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs border-slate-300">
-              <span
-                className={
-                  `inline-block w-2 h-2 rounded-full ` +
-                  (event.type === 'history' ? 'bg-rose-600' :
-                   event.type === 'personal' ? 'bg-emerald-600' :
-                   event.type === 'science' ? 'bg-blue-600' :
-                   event.type === 'culture' ? 'bg-violet-600' :
-                   event.type === 'tech' ? 'bg-amber-500' : 'bg-slate-600')
-                }
-              />
-              <span className="capitalize">{event.type || 'other'}</span>
-            </span>
+            <TypeBadge type={event.type || 'other'} />
             <span aria-label="Event date">{fmtDate}</span>
           </div>
           {event.body && (
@@ -72,13 +63,7 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
                 variant="outline"
                 size="md"
                 className="border-rose-300 text-rose-700 hover:bg-rose-50"
-                onClick={() => {
-                  const ok = window.confirm('Delete this event? This action cannot be undone.');
-                  if (!ok) return;
-                  removeEvent(event.id);
-                  toast.success('Event deleted');
-                  onClose?.();
-                }}
+                onClick={() => setConfirmOpen(true)}
               >
                 Delete
               </Button>
@@ -87,6 +72,21 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
               Close
             </Button>
           </div>
+          <ConfirmDialog
+            open={confirmOpen}
+            title="Delete this event?"
+            description="This action cannot be undone. The event will be permanently removed."
+            confirmLabel="Delete"
+            cancelLabel="Cancel"
+            destructive
+            onCancel={() => setConfirmOpen(false)}
+            onConfirm={() => {
+              removeEvent(event.id);
+              toast.success('Event deleted');
+              setConfirmOpen(false);
+              onClose?.();
+            }}
+          />
         </div>
       ) : (
         <div>

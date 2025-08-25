@@ -3,6 +3,8 @@ import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { snapScale, clampPan, getAdaptiveScaleBounds } from '../../utils';
 import { useTimeline } from '../../hooks/useTimeline';
 import CONFIG from '../../config/index.js';
+import Toolbar from '@/components/ui/Toolbar.jsx';
+import Button from '@/components/ui/Button.jsx';
 
 export default function ZoomControls() {
   const ctx = useContext(TimelineContext);
@@ -58,23 +60,29 @@ export default function ZoomControls() {
   }, [onKey]);
 
   return (
-    <div className="fixed bottom-6 left-6 flex items-center gap-2 bg-white/80 backdrop-blur rounded shadow px-3 py-2">
-      <button
-        className="px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+    <Toolbar className="fixed bottom-6 left-6">
+      <Button
+        variant="outline"
+        size="sm"
         aria-label="Zoom out" title="Zoom out"
+        className="px-2 py-1"
         onClick={() => { const next = snapScale(clampScale(scale - CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
-      >-</button>
+      >-</Button>
       <span className="text-sm tabular-nums min-w-[56px] text-center">{pretty}x</span>
-      <button
-        className="px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      <Button
+        variant="outline"
+        size="sm"
         aria-label="Zoom in" title="Zoom in"
+        className="px-2 py-1"
         onClick={() => { const next = snapScale(clampScale(scale + CONFIG.zoom.step)); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
-      >+</button>
-      <button
-        className="ml-2 px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+      >+</Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="ml-2 px-2 py-1"
         aria-label="Reset zoom" title="Reset zoom"
         onClick={() => { const b = getAdaptiveScaleBounds(domain); const next = Math.min(Math.max(CONFIG.zoom.reset, b.min), b.max); setScale(next); const p2 = clampPan(pan, next); if (p2 !== pan) setPan(p2); }}
-      >Reset</button>
-    </div>
+      >Reset</Button>
+    </Toolbar>
   );
 }

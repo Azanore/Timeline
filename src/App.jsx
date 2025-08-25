@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import Header from './components/layout/Header.jsx'
 import TimelineView from './views/TimelineView.jsx'
-import FloatingButton from './components/layout/FloatingButton.jsx'
 import Modal from './components/ui/Modal.jsx'
 import EventForm from './components/events/EventForm.jsx'
 import { useEvents } from './hooks/useEvents'
 import { useToast } from './hooks/useToast'
+import Button from './components/ui/Button.jsx'
 
 function App() {
   const { addEvent } = useEvents()
@@ -19,7 +19,13 @@ function App() {
       <main className="flex-1 flex flex-col">
         <TimelineView />
       </main>
-      <FloatingButton onClick={() => setOpenAdd(true)} />
+      <Button
+        onClick={() => setOpenAdd(true)}
+        aria-label="Add Event"
+        className="fixed bottom-6 right-6 rounded-full w-14 h-14 text-2xl shadow-lg"
+      >
+        +
+      </Button>
 
       <Modal open={openAdd} onClose={() => setOpenAdd(false)} ariaLabel="Add Event">
         <h3 className="text-lg font-semibold mb-3">Add Event</h3>

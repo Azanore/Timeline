@@ -1,33 +1,41 @@
 import { useTimeline } from '../../hooks/useTimeline';
+import Button from '@/components/ui/Button.jsx';
+import Select from '@/components/ui/Select.jsx';
+import TypeLegend from '@/components/ui/TypeLegend.jsx';
+import ThemeToggle from '@/components/ui/ThemeToggle.jsx';
 
 // Header: app title + timeline switcher + create timeline control
 export default function Header() {
   const { timelines, activeTimelineId, setActiveTimeline, createTimeline } = useTimeline();
 
   return (
-    <header className="w-full border-b border-slate-200 bg-white/80 backdrop-blur sticky top-0 z-10">
+    <header className="w-full border-b border-border bg-background/80 backdrop-blur sticky top-0 z-10">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-slate-800 flex-1">Timeline</h1>
+        <h1 className="text-lg font-semibold text-foreground flex-1">Timeline</h1>
 
-        <select
-          className="border rounded px-2 py-1 text-sm"
+        <Select
           value={activeTimelineId}
           onChange={(e) => setActiveTimeline(e.target.value)}
           aria-label="Select timeline"
+          className="w-[180px]"
         >
           {timelines.map(t => (
             <option key={t.id} value={t.id}>{t.name}</option>
           ))}
-        </select>
+        </Select>
 
-        <button
-          type="button"
-          className="ml-2 inline-flex items-center gap-1 rounded bg-indigo-600 text-white text-sm px-3 py-1.5 hover:bg-indigo-700 transition-all duration-300"
+        <Button
+          className="ml-2"
+          size="md"
           onClick={() => createTimeline(`Timeline ${timelines.length + 1}`)}
         >
           + New Timeline
-        </button>
+        </Button>
+
+        <TypeLegend className="ml-auto hidden md:flex" />
+        <ThemeToggle className="ml-2" />
       </div>
     </header>
   );
 }
+

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { formatPartialUTC } from '../../utils';
 import CONFIG from '../../config/index.js';
+import TypeBadge from '@/components/ui/TypeBadge.jsx';
 
 /**
  * @typedef {Object} EventCardProps
@@ -76,7 +77,12 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
     >
       <div className="flex items-start">
         <div className="min-w-0">
-          <div className={`text-[11px] font-medium text-slate-800 ${forceFull ? 'truncate' : (tier === 'min' ? 'whitespace-nowrap' : 'truncate')}`}>{event?.title || ''}</div>
+          <div className={`flex items-center gap-1 ${forceFull ? 'truncate' : (tier === 'min' ? 'whitespace-nowrap' : 'truncate')}`}>
+            {(forceFull || tier !== 'min') && (
+              <TypeBadge type={event?.type || 'other'} className="shrink-0" />
+            )}
+            <span className="text-[11px] font-medium text-slate-800 truncate">{event?.title || ''}</span>
+          </div>
           {(forceFull || tier !== 'min') && (
             <div className="text-[10px] text-slate-500 truncate">{dateText}</div>
           )}

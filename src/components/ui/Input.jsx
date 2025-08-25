@@ -1,4 +1,5 @@
 import React from 'react';
+import { cn } from '@/lib/utils';
 
 /**
  * @typedef {Object} InputProps
@@ -40,20 +41,20 @@ export default function Input({
   ...rest
 }) {
   const inputId = id || React.useId();
-  const base = 'w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500';
-  const border = error ? 'border-rose-400' : 'border-slate-300';
+  const base = 'w-full rounded-md border bg-background text-foreground px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed';
+  const border = error ? 'border-destructive' : 'border-input';
 
   return (
     <div className={className}>
       {label && (
-        <label htmlFor={inputId} className="block text-sm text-slate-700 mb-1">
+        <label htmlFor={inputId} className="block text-sm text-foreground mb-1">
           {label} {required && <span className="text-rose-600">*</span>}
         </label>
       )}
       <input
         id={inputId}
         type={type}
-        className={`${base} ${border}`}
+        className={cn(base, border)}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
@@ -64,8 +65,8 @@ export default function Input({
         maxLength={maxLength}
         {...rest}
       />
-      {helper && !error && <p className="text-xs text-slate-500 mt-1">{helper}</p>}
-      {error && <p className="text-xs text-rose-600 mt-1">{error}</p>}
+      {helper && !error && <p className="text-xs text-muted-foreground mt-1">{helper}</p>}
+      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
     </div>
   );
 }

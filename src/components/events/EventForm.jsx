@@ -4,6 +4,8 @@ import CONFIG from '../../config/index.js';
 import { useValidation } from '../../hooks/useValidation';
 import Input from '../ui/Input.jsx';
 import Button from '../ui/Button.jsx';
+import Textarea from '../ui/Textarea.jsx';
+import Select from '../ui/Select.jsx';
 
 /**
  * @typedef EventInput
@@ -91,19 +93,19 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
 
       {/* Body textarea */}
       <div>
-        <label className="block text-sm text-slate-700 mb-1" htmlFor="event-body">
-          Body <span className="text-rose-600">*</span>
+        <label className="block text-sm text-foreground mb-1" htmlFor="event-body">
+          Body <span className="text-destructive">*</span>
         </label>
-        <textarea
+        <Textarea
           id="event-body"
-          className={`w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 ${errors.body ? 'border-rose-400' : 'border-slate-300'}`}
           value={local.body}
           onChange={(e) => update({ body: e.target.value })}
           placeholder="Details or description"
-          maxLength={CONFIG.events.textLimits.bodyMax}
           rows={4}
+          error={Boolean(errors.body)}
+          maxLength={CONFIG.events.textLimits.bodyMax}
         />
-        {errors.body && <p className="text-xs text-rose-600 mt-1">{errors.body}</p>}
+        {errors.body && <p className="text-xs text-destructive mt-1">{errors.body}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -119,9 +121,8 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
           error={errors.start}
         />
         <div>
-          <label className="block text-sm text-slate-700 mb-1">Type</label>
-          <select
-            className="w-full border rounded px-2 py-1 text-sm"
+          <label className="block text-sm text-foreground mb-1">Type</label>
+          <Select
             value={local.type}
             onChange={(e) => update({ type: e.target.value })}
           >
@@ -131,7 +132,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             <option value="culture">Culture</option>
             <option value="tech">Tech</option>
             <option value="other">Other</option>
-          </select>
+          </Select>
         </div>
       </div>
 
