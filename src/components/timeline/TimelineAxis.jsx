@@ -243,7 +243,7 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
   // Horizontal only
   return (
     <div ref={containerRef} className="w-full h-16 relative overflow-hidden">
-      <div className="absolute inset-x-0 top-8 border-t border-slate-300" />
+      <div className="absolute inset-x-0 top-8 border-t border-border" />
       {(() => {
         // Precompute positions for existing markers
         const pos = markers.map((mk) => {
@@ -381,17 +381,17 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           return (
             <div
               key={`mk-${i}-${p.mk.yf}`}
-              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none`}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-muted-foreground select-none`}
               style={p.leftPx != null ? { left: p.leftPx, transform: 'translateX(-50%)' } : { left: `${p.leftPct}%`, transform: 'translateX(-50%)' }}
             >
               {yearsOnTop ? (
                 <>
                   <div className="mb-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'center' }}>{p.mk.label}</div>
-                  <div className="w-px h-3 bg-slate-400 mx-auto" style={{ transform: 'translateX(-0.5px)' }} />
+                  <div className="w-px h-3 bg-border mx-auto" style={{ transform: 'translateX(-0.5px)' }} />
                 </>
               ) : (
                 <>
-                  <div className="w-px h-3 bg-slate-400 mx-auto" style={{ transform: 'translateX(-0.5px)' }} />
+                  <div className="w-px h-3 bg-border mx-auto" style={{ transform: 'translateX(-0.5px)' }} />
                   <div className="mt-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'center' }}>{p.mk.label}</div>
                 </>
               )}
@@ -404,17 +404,17 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           rendered.push(
             <div
               key={`mk-pin-left-${pinTarget.mk.yf}`}
-              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none`}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-muted-foreground select-none`}
               style={width > 0 ? { left: 0, transform: 'translateX(0%)' } : { left: '0%', transform: 'translateX(0%)' }}
             >
               {yearsOnTop ? (
                 <>
                   <div className="mb-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'left' }}>{pinTarget.mk.label}</div>
-                  <div className="w-px h-3 bg-slate-400 mr-auto" />
+                  <div className="w-px h-3 bg-border mr-auto" />
                 </>
               ) : (
                 <>
-                  <div className="w-px h-3 bg-slate-400 mr-auto" />
+                  <div className="w-px h-3 bg-border mr-auto" />
                   <div className="mt-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'left' }}>{pinTarget.mk.label}</div>
                 </>
               )}
@@ -425,17 +425,17 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           rendered.push(
             <div
               key={`mk-pin-right-${pinTarget.mk.yf}`}
-              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-slate-600 select-none`}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-muted-foreground select-none`}
               style={width > 0 ? { left: width, transform: 'translateX(-100%)' } : { left: '100%', transform: 'translateX(-100%)' }}
             >
               {yearsOnTop ? (
                 <>
                   <div className="mb-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'right' }}>{pinTarget.mk.label}</div>
-                  <div className="w-px h-3 bg-slate-400 ml-auto" />
+                  <div className="w-px h-3 bg-border ml-auto" />
                 </>
               ) : (
                 <>
-                  <div className="w-px h-3 bg-slate-400 ml-auto" />
+                  <div className="w-px h-3 bg-border ml-auto" />
                   <div className="mt-1 tabular-nums whitespace-nowrap" style={{ textAlign: 'right' }}>{pinTarget.mk.label}</div>
                 </>
               )}
@@ -527,9 +527,9 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           })();
           return (
             <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}-${it.min || 0}`} className="absolute top-8 select-none" style={leftPx != null ? { left: leftPx, transform: 'translateX(-50%)' } : { left: `${leftPct}%`, transform: 'translateX(-50%)' }}>
-              <div className={`w-px ${isMajor ? 'h-3 bg-slate-400' : 'h-2 bg-slate-300/80' } mx-auto`} style={{ transform: 'translateX(-0.5px)' }} />
+              <div className={`w-px ${isMajor ? 'h-3 bg-border' : 'h-2 bg-border/80' } mx-auto`} style={{ transform: 'translateX(-0.5px)' }} />
               {label && (
-                <div className="mt-1 text-[10px] text-slate-500 tabular-nums whitespace-nowrap truncate max-w-[140px]">{label}</div>
+                <div className="mt-1 text-[10px] text-muted-foreground tabular-nums whitespace-nowrap truncate max-w-[140px]">{label}</div>
               )}
             </div>
           );

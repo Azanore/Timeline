@@ -1,79 +1,75 @@
-import { useEffect, useRef, useCallback } from 'react';
+import * as React from 'react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { cn } from '@/lib/utils';
 
-export default function Modal({ open, onClose, ariaLabel, children }) {
-  const overlayRef = useRef(null);
-  const panelRef = useRef(null);
+const Dialog = DialogPrimitive.Root;
+const DialogTrigger = DialogPrimitive.Trigger;
+const DialogPortal = DialogPrimitive.Portal;
+const DialogClose = DialogPrimitive.Close;
 
-  // Focus management: trap focus within the panel
-  const focusFirst = useCallback(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const focusables = panel.querySelectorAll(
-      'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
-    );
-    const first = focusables[0];
-    const target = first || panel;
-    target.focus({ preventScroll: true });
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const prevActive = document.activeElement;
-    // Defer to allow DOM paint
-    const id = setTimeout(focusFirst, 0);
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose?.();
-      } else if (e.key === 'Tab') {
-        // Trap focus
-        const panel = panelRef.current;
-        if (!panel) return;
-        const focusables = Array.from(
-          panel.querySelectorAll('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])')
-        ).filter((el) => el.offsetParent !== null);
-        if (focusables.length === 0) {
-          e.preventDefault();
-          panel.focus();
-          return;
-        }
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      clearTimeout(id);
-      document.removeEventListener('keydown', onKey, true);
-      // Restore focus to previous active element
-      if (prevActive && prevActive.focus) prevActive.focus({ preventScroll: true });
-    };
-  }, [open, onClose, focusFirst]);
-
-  if (!open) return null;
+const DialogOverlay = React.forwardRef(function DialogOverlay({ className = '', ...props }, ref) {
   return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-label={ariaLabel || 'Dialog'}
-    >
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div
-        ref={panelRef}
-        className="relative bg-white rounded shadow-xl w-full max-w-lg mx-4 p-4 outline-none"
-        tabIndex={-1}
-      >
-        {children}
-      </div>
-    </div>
+    <DialogPrimitive.Overlay
+      ref={ref}
+      className={cn(
+        'fixed inset-0 z-[40] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out',
+        'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        className
+      )}
+      {...props}
+    />
   );
-}
+});
+
+const DialogContent = React.forwardRef(function DialogContent({ className = '', ...props }, ref) {
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(
+          'fixed z-50 grid w-full max-w-lg gap-4 rounded-md border bg-background p-6 shadow-lg duration-200',
+          'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+          'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          'data-[state=closed]:slide-out-to-top-[2%] data-[state=open]:slide-in-from-top-[2%]',
+          'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
+          className
+        )}
+        {...props}
+      />
+    </DialogPortal>
+  );
+});
+
+const DialogHeader = ({ className = '', ...props }) => (
+  <div className={cn('flex flex-col space-y-1.5 text-center sm:text-left', className)} {...props} />
+);
+
+const DialogFooter = ({ className = '', ...props }) => (
+  <div className={cn('flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2', className)} {...props} />
+);
+
+const DialogTitle = React.forwardRef(function DialogTitle({ className = '', ...props }, ref) {
+  return (
+    <DialogPrimitive.Title ref={ref} className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
+  );
+});
+
+const DialogDescription = React.forwardRef(function DialogDescription({ className = '', ...props }, ref) {
+  return (
+    <DialogPrimitive.Description ref={ref} className={cn('text-sm text-muted-foreground', className)} {...props} />
+  );
+});
+
+export {
+  Dialog,
+  DialogTrigger,
+  DialogPortal,
+  DialogClose,
+  DialogOverlay,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+};

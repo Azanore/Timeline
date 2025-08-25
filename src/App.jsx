@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import Header from './components/layout/Header.jsx'
 import TimelineView from './views/TimelineView.jsx'
-import Modal from './components/ui/Modal.jsx'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from './components/ui/Modal.jsx'
 import EventForm from './components/events/EventForm.jsx'
 import { useEvents } from './hooks/useEvents'
 import { useToast } from './hooks/useToast'
@@ -27,26 +27,32 @@ function App() {
         +
       </Button>
 
-      <Modal open={openAdd} onClose={() => setOpenAdd(false)} ariaLabel="Add Event">
-        <h3 className="text-lg font-semibold mb-3">Add Event</h3>
-        <EventForm
-          onCancel={() => setOpenAdd(false)}
-          onSubmit={(val) => {
-            addEvent({
-              title: val.title,
-              body: val.body,
-              type: val.type,
-              start: val.start,
-              ...(val.end ? { end: val.end } : {}),
-            })
-            setOpenAdd(false)
-            toast.success('Event added')
-          }}
-          labels={{ submitLabel: 'Add', cancelLabel: 'Cancel' }}
-        />
-      </Modal>
+      <Dialog open={openAdd} onOpenChange={(next) => { if (!next) setOpenAdd(false) }}>
+        <DialogContent aria-label="Add Event">
+          <DialogHeader>
+            <DialogTitle>Add Event</DialogTitle>
+            <DialogDescription className="sr-only">Create a new event.</DialogDescription>
+          </DialogHeader>
+          <EventForm
+            onCancel={() => setOpenAdd(false)}
+            onSubmit={(val) => {
+              addEvent({
+                title: val.title,
+                body: val.body,
+                type: val.type,
+                start: val.start,
+                ...(val.end ? { end: val.end } : {}),
+              })
+              setOpenAdd(false)
+              toast.success('Event added')
+            }}
+            labels={{ submitLabel: 'Add', cancelLabel: 'Cancel' }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 export default App
+

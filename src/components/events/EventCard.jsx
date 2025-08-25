@@ -27,23 +27,14 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
       blue: 'border-blue-400',
       violet: 'border-violet-400',
       amber: 'border-amber-400',
-      slate: 'border-slate-300',
+      slate: 'border-border',
     };
-    return map[key] || 'border-slate-300';
+    return map[key] || 'border-border';
   }, [event?.type]);
 
-  // Light background tint aligned with type
+  // Background tint: use per-type theme-aware tint with light/dark support
   const bgTintClass = useMemo(() => {
-    const key = CONFIG.types[event?.type || 'other']?.border || 'slate';
-    const map = {
-      rose: 'bg-rose-50',
-      emerald: 'bg-emerald-50',
-      blue: 'bg-blue-50',
-      violet: 'bg-violet-50',
-      amber: 'bg-amber-50',
-      slate: 'bg-white',
-    };
-    return map[key] || 'bg-white';
+    return CONFIG.types[event?.type || 'other']?.bgTint || 'bg-muted';
   }, [event?.type]);
 
   const dateText = useMemo(() => {
@@ -70,7 +61,7 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
         'backdrop-blur-sm',
         bgTintClass,
         borderColorClass,
-        selected ? 'ring-2 ring-offset-2 ring-emerald-500' : '',
+        selected ? 'ring-2 ring-offset-2 ring-primary' : '',
         'transition-shadow',
       ].join(' ')}
       title={tier === 'min' ? event?.title : `${event?.title || ''}${dateText ? ' • ' + dateText : ''}`}
@@ -81,14 +72,14 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
             {(forceFull || tier !== 'min') && (
               <TypeBadge type={event?.type || 'other'} className="shrink-0" />
             )}
-            <span className="text-[11px] font-medium text-slate-800 truncate">{event?.title || ''}</span>
+            <span className="text-[11px] font-medium text-foreground truncate">{event?.title || ''}</span>
           </div>
           {(forceFull || tier !== 'min') && (
-            <div className="text-[10px] text-slate-500 truncate">{dateText}</div>
+            <div className="text-[10px] text-muted-foreground truncate">{dateText}</div>
           )}
           {(showBody && (forceFull || tier === 'max') && event?.body) && (
             <p
-              className="mt-1 text-[10px] text-slate-700 whitespace-pre-wrap break-words"
+              className="mt-1 text-[10px] text-foreground/80 whitespace-pre-wrap break-words"
               style={{ display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2, overflow: 'hidden' }}
             >
               {event.body}

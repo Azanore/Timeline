@@ -1,4 +1,4 @@
-import Modal from '../ui/Modal.jsx';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/Modal.jsx';
 import EventForm from './EventForm.jsx';
 import { useEvents } from '../../hooks/useEvents';
 import { useState, useMemo, useEffect } from 'react';
@@ -6,7 +6,15 @@ import Button from '../ui/Button.jsx';
 import { useToast } from '../../hooks/useToast';
 import { formatPartialUTC } from '../../utils';
 import TypeBadge from '@/components/ui/TypeBadge.jsx';
-import ConfirmDialog from '@/components/ui/ConfirmDialog.jsx';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/ConfirmDialog.jsx';
 
 /**
  * @typedef {Object} EventDialogProps
@@ -41,16 +49,20 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
   if (!event) return null;
 
   return (
-    <Modal open={open} onClose={onClose} ariaLabel={mode === 'edit' ? 'Edit Event' : 'Event Details'}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose?.(); }}>
+      <DialogContent aria-label={mode === 'edit' ? 'Edit Event' : 'Event Details'}>
       {mode === 'view' ? (
         <div>
-          <h3 className="text-lg font-semibold mb-1">{event.title}</h3>
-          <div className="mb-3 text-sm text-slate-600 flex items-center gap-2">
+          <DialogHeader>
+            <DialogTitle>{event.title}</DialogTitle>
+            <DialogDescription className="sr-only">View details for the selected event.</DialogDescription>
+          </DialogHeader>
+          <div className="mb-3 text-sm text-muted-foreground flex items-center gap-2">
             <TypeBadge type={event.type || 'other'} />
             <span aria-label="Event date">{fmtDate}</span>
           </div>
           {event.body && (
-            <div className="text-sm text-slate-700">
+            <div className="text-sm text-foreground">
               <p className="whitespace-pre-wrap break-words">{event.body}</p>
             </div>
           )}
@@ -62,7 +74,7 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
               <Button
                 variant="outline"
                 size="md"
-                className="border-rose-300 text-rose-700 hover:bg-rose-50"
+                className="border-destructive text-destructive hover:bg-destructive/10"
                 onClick={() => setConfirmOpen(true)}
               >
                 Delete
@@ -72,25 +84,40 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
               Close
             </Button>
           </div>
-          <ConfirmDialog
-            open={confirmOpen}
-            title="Delete this event?"
-            description="This action cannot be undone. The event will be permanently removed."
-            confirmLabel="Delete"
-            cancelLabel="Cancel"
-            destructive
-            onCancel={() => setConfirmOpen(false)}
-            onConfirm={() => {
-              removeEvent(event.id);
-              toast.success('Event deleted');
-              setConfirmOpen(false);
-              onClose?.();
-            }}
-          />
+          <AlertDialog open={confirmOpen} onOpenChange={(next) => { if (!next) setConfirmOpen(false); }}>
+            <AlertDialogContent>
+              <AlertDialogTitle>Delete this event?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. The event will be permanently removed.
+              </AlertDialogDescription>
+              <div className="flex justify-end gap-2 pt-2">
+                <AlertDialogCancel asChild>
+                  <Button variant="outline">Cancel</Button>
+                </AlertDialogCancel>
+                <AlertDialogAction asChild>
+                  <Button
+                    variant="outline"
+                    className="border-destructive text-destructive hover:bg-destructive/10"
+                    onClick={() => {
+                      removeEvent(event.id);
+                      toast.success('Event deleted');
+                      setConfirmOpen(false);
+                      onClose?.();
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </AlertDialogAction>
+              </div>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       ) : (
         <div>
-          <h3 className="text-lg font-semibold mb-3">Edit Event</h3>
+          <DialogHeader>
+            <DialogTitle>Edit Event</DialogTitle>
+            <DialogDescription className="sr-only">Update the details for this event.</DialogDescription>
+          </DialogHeader>
           <EventForm
             value={event}
             onCancel={() => setMode('view')}
@@ -107,7 +134,8 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
           />
         </div>
       )}
-    </Modal>
+      </DialogContent>
+    </Dialog>
   );
 }
 

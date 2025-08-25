@@ -1,5 +1,5 @@
 import { useContext, useRef, useState, useCallback, useMemo, useEffect } from 'react';
-import TimelineAxis from './TimelineAxis.jsx';
+import ZoomControls from './ZoomControls.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { clamp, buildLinearScaler, clampPan, toYearFraction, getAdaptiveScaleBounds } from '../../utils';
 import CONFIG from '../../config/index.js';
@@ -183,10 +183,9 @@ export default function Timeline({ domain }) {
   return (
     <div className="w-full h-full flex flex-col">
       <div aria-live="polite" className="sr-only">{liveMsg}</div>
-      <TimelineAxis domain={domain} />
       <div
         ref={containerRef}
-        className={`h-64 overflow-y-auto overflow-x-hidden no-scrollbar border border-slate-200 rounded-md bg-white/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus:outline-none focus:ring-2 focus:ring-blue-500`}
+        className={`h-64 overflow-y-auto overflow-x-hidden no-scrollbar border border-border rounded-md bg-background/60 ${dragging ? 'cursor-grabbing' : 'cursor-grab'} select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
         tabIndex={0}
         role="region"
         aria-label="Timeline track"
@@ -208,7 +207,7 @@ export default function Timeline({ domain }) {
           {rowsData?.rows?.map((row, rIdx) => (
             <div
               key={`row-${rIdx}`}
-              className={`grid relative w-full border-y ${rIdx % 2 === 0 ? 'bg-slate-50 border-slate-300' : 'bg-slate-100 border-slate-300'}`}
+              className={`grid relative w-full border-y ${rIdx % 2 === 0 ? 'bg-muted border-border' : 'bg-background border-border'}`}
               role="list"
               aria-label={`Row ${rIdx + 1}`}
             >
@@ -235,6 +234,7 @@ export default function Timeline({ domain }) {
         </div>
         
       </div>
+      <ZoomControls />
       <EventDialog open={openEdit} onClose={() => setOpenEdit(false)} event={selected} closeOnSave />
     </div>
   );

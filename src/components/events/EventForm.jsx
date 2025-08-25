@@ -5,7 +5,7 @@ import { useValidation } from '../../hooks/useValidation';
 import Input from '../ui/Input.jsx';
 import Button from '../ui/Button.jsx';
 import Textarea from '../ui/Textarea.jsx';
-import Select from '../ui/Select.jsx';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/Select.jsx';
 
 /**
  * @typedef EventInput
@@ -81,15 +81,19 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
         onSubmit?.(cleaned);
       }}
     >
-      <Input
-        id="event-title"
-        label="Title"
-        value={local.title}
-        maxLength={CONFIG.events.textLimits.titleMax}
-        onChange={(e) => update({ title: e.target.value })}
-        placeholder="Event title"
-        error={errors.title}
-      />
+      <div>
+        <label className="block text-sm text-foreground mb-1" htmlFor="event-title">
+          Title
+        </label>
+        <Input
+          id="event-title"
+          value={local.title}
+          maxLength={CONFIG.events.textLimits.titleMax}
+          onChange={(e) => update({ title: e.target.value })}
+          placeholder="Event title"
+        />
+        {errors.title && <p className="text-xs text-destructive mt-1">{errors.title}</p>}
+      </div>
 
       {/* Body textarea */}
       <div>
@@ -102,77 +106,88 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
           onChange={(e) => update({ body: e.target.value })}
           placeholder="Details or description"
           rows={4}
-          error={Boolean(errors.body)}
           maxLength={CONFIG.events.textLimits.bodyMax}
         />
         {errors.body && <p className="text-xs text-destructive mt-1">{errors.body}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Input
-          id="event-year"
-          label="Year"
-          type="number"
-          value={local.start.year}
-          onChange={(e) => updateStart({ year: Number(e.target.value) })}
-          min={CONFIG.events.yearRange.min}
-          max={CONFIG.events.yearRange.max}
-          placeholder="YYYY"
-          error={errors.start}
-        />
+        <div>
+          <label className="block text-sm text-foreground mb-1" htmlFor="event-year">Year</label>
+          <Input
+            id="event-year"
+            type="number"
+            value={local.start.year}
+            onChange={(e) => updateStart({ year: Number(e.target.value) })}
+            min={CONFIG.events.yearRange.min}
+            max={CONFIG.events.yearRange.max}
+            placeholder="YYYY"
+          />
+          {errors.start && <p className="text-xs text-destructive mt-1">{errors.start}</p>}
+        </div>
         <div>
           <label className="block text-sm text-foreground mb-1">Type</label>
-          <Select
-            value={local.type}
-            onChange={(e) => update({ type: e.target.value })}
-          >
-            <option value="history">History</option>
-            <option value="personal">Personal</option>
-            <option value="science">Science</option>
-            <option value="culture">Culture</option>
-            <option value="tech">Tech</option>
-            <option value="other">Other</option>
+          <Select value={local.type} onValueChange={(val) => update({ type: val })}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="history">History</SelectItem>
+              <SelectItem value="personal">Personal</SelectItem>
+              <SelectItem value="science">Science</SelectItem>
+              <SelectItem value="culture">Culture</SelectItem>
+              <SelectItem value="tech">Tech</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
           </Select>
         </div>
       </div>
 
       <div className="grid grid-cols-4 gap-3">
-        <Input
-          label="Month"
-          type="number"
-          value={local.start.month}
-          onChange={(e) => updateStart({ month: e.target.value ? Number(e.target.value) : '' })}
-          min={1}
-          max={12}
-          placeholder="MM"
-        />
-        <Input
-          label="Day"
-          type="number"
-          value={local.start.day}
-          onChange={(e) => updateStart({ day: e.target.value ? Number(e.target.value) : '' })}
-          min={1}
-          max={31}
-          placeholder="DD"
-        />
-        <Input
-          label="Hour"
-          type="number"
-          value={local.start.hour}
-          onChange={(e) => updateStart({ hour: e.target.value ? Number(e.target.value) : '' })}
-          min={0}
-          max={23}
-          placeholder="HH"
-        />
-        <Input
-          label="Minute"
-          type="number"
-          value={local.start.minute}
-          onChange={(e) => updateStart({ minute: e.target.value ? Number(e.target.value) : '' })}
-          min={0}
-          max={59}
-          placeholder="MM"
-        />
+        <div>
+          <label className="block text-sm text-foreground mb-1">Month</label>
+          <Input
+            type="number"
+            value={local.start.month}
+            onChange={(e) => updateStart({ month: e.target.value ? Number(e.target.value) : '' })}
+            min={1}
+            max={12}
+            placeholder="MM"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-foreground mb-1">Day</label>
+          <Input
+            type="number"
+            value={local.start.day}
+            onChange={(e) => updateStart({ day: e.target.value ? Number(e.target.value) : '' })}
+            min={1}
+            max={31}
+            placeholder="DD"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-foreground mb-1">Hour</label>
+          <Input
+            type="number"
+            value={local.start.hour}
+            onChange={(e) => updateStart({ hour: e.target.value ? Number(e.target.value) : '' })}
+            min={0}
+            max={23}
+            placeholder="HH"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-foreground mb-1">Minute</label>
+          <Input
+            type="number"
+            value={local.start.minute}
+            onChange={(e) => updateStart({ minute: e.target.value ? Number(e.target.value) : '' })}
+            min={0}
+            max={59}
+            placeholder="MM"
+          />
+        </div>
       </div>
 
       <div className="pt-2">
@@ -200,52 +215,62 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
 
       {endEnabled && (
         <div className="grid grid-cols-5 gap-3">
-          <Input
-            label="End Year"
-            type="number"
-            value={local.end?.year || ''}
-            onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
-            id="event-end-year"
-            min={CONFIG.events.yearRange.min}
-            max={CONFIG.events.yearRange.max}
-            placeholder="YYYY"
-          />
-          <Input
-            label="Month"
-            type="number"
-            value={local.end?.month || ''}
-            onChange={(e) => updateEnd({ month: e.target.value ? Number(e.target.value) : '' })}
-            min={1}
-            max={12}
-            placeholder="MM"
-          />
-          <Input
-            label="Day"
-            type="number"
-            value={local.end?.day || ''}
-            onChange={(e) => updateEnd({ day: e.target.value ? Number(e.target.value) : '' })}
-            min={1}
-            max={31}
-            placeholder="DD"
-          />
-          <Input
-            label="Hour"
-            type="number"
-            value={local.end?.hour || ''}
-            onChange={(e) => updateEnd({ hour: e.target.value ? Number(e.target.value) : '' })}
-            min={0}
-            max={23}
-            placeholder="HH"
-          />
-          <Input
-            label="Minute"
-            type="number"
-            value={local.end?.minute || ''}
-            onChange={(e) => updateEnd({ minute: e.target.value ? Number(e.target.value) : '' })}
-            min={0}
-            max={59}
-            placeholder="MM"
-          />
+          <div>
+            <label className="block text-sm text-foreground mb-1" htmlFor="event-end-year">End Year</label>
+            <Input
+              type="number"
+              value={local.end?.year || ''}
+              onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
+              id="event-end-year"
+              min={CONFIG.events.yearRange.min}
+              max={CONFIG.events.yearRange.max}
+              placeholder="YYYY"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-foreground mb-1">Month</label>
+            <Input
+              type="number"
+              value={local.end?.month || ''}
+              onChange={(e) => updateEnd({ month: e.target.value ? Number(e.target.value) : '' })}
+              min={1}
+              max={12}
+              placeholder="MM"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-foreground mb-1">Day</label>
+            <Input
+              type="number"
+              value={local.end?.day || ''}
+              onChange={(e) => updateEnd({ day: e.target.value ? Number(e.target.value) : '' })}
+              min={1}
+              max={31}
+              placeholder="DD"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-foreground mb-1">Hour</label>
+            <Input
+              type="number"
+              value={local.end?.hour || ''}
+              onChange={(e) => updateEnd({ hour: e.target.value ? Number(e.target.value) : '' })}
+              min={0}
+              max={23}
+              placeholder="HH"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-foreground mb-1">Minute</label>
+            <Input
+              type="number"
+              value={local.end?.minute || ''}
+              onChange={(e) => updateEnd({ minute: e.target.value ? Number(e.target.value) : '' })}
+              min={0}
+              max={59}
+              placeholder="MM"
+            />
+          </div>
         </div>
       )}
 

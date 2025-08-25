@@ -37,6 +37,78 @@ body { margin: 0; }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50; }
+    @apply border-border; }
   body {
-    @apply bg-background text-foreground; } }
+    @apply bg-background text-foreground; }
+
+  /* Remove all shadows globally (box-shadow and drop-shadow) */
+  *, *::before, *::after { box-shadow: none !important; filter: none !important; }
+
+  /* Color scheme + platform hints */
+  :root { color-scheme: light dark; accent-color: var(--primary); caret-color: currentColor; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  *, *::before, *::after { -webkit-tap-highlight-color: transparent; print-color-adjust: exact; }
+
+  /* Base layout */
+  html, body, #root { min-height: 100dvh; }
+
+  /* Typography */
+  body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-wrap: pretty; }
+  a { text-underline-offset: 2px; text-decoration-thickness: from-font; text-decoration-skip-ink: auto; }
+
+  /* Forms */
+  textarea { resize: none; }
+  input, button, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  button:disabled, [aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
+  input[type="checkbox"], input[type="radio"] { cursor: pointer; }
+  label { cursor: pointer; }
+  /* Number input spinners */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+
+  /* Media elements */
+  img, video, canvas, svg, picture { display: block; max-width: 100%; }
+  img { height: auto; }
+  svg { inline-size: 1em; block-size: 1em; fill: currentColor; }
+
+  /* Tables and lists */
+  table { border-collapse: collapse; }
+  caption { text-align: left; }
+  ul[role='list'], ol[role='list'] { list-style: none; padding: 0; margin: 0; }
+
+  /* Dialogs and backdrops */
+  dialog { margin: 0; padding: 0; }
+  ::backdrop { background: oklch(0 0 0 / .5); }
+
+  /* Selection */
+  ::selection { background: var(--primary); color: var(--primary-foreground); }
+
+  /* Scrollbars */
+  :root { scrollbar-color: var(--border) transparent; }
+  * { scrollbar-width: thin; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background-color: var(--border); border-radius: 9999px; }
+
+  /* Autofill (WebKit) */
+  input:-webkit-autofill,
+  textarea:-webkit-autofill,
+  select:-webkit-autofill {
+    -webkit-text-fill-color: var(--foreground);
+    box-shadow: 0 0 0 1000px var(--background) inset;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
