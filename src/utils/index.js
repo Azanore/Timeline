@@ -280,20 +280,22 @@ export function nextTickUTC(date, unit, step = 1) {
 export function formatMarkerLabelUTC(date, unit) {
   if (!(date instanceof Date)) return '';
   try {
+    const loc = CONFIG?.format?.locale;
+    const tz = CONFIG?.format?.timeZone || 'UTC';
     switch (unit) {
       case 'year':
-        return new Intl.DateTimeFormat(undefined, { year: 'numeric', timeZone: 'UTC' }).format(date);
+        return new Intl.DateTimeFormat(loc, { year: 'numeric', timeZone: tz }).format(date);
       case 'month':
-        return new Intl.DateTimeFormat(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
+        return new Intl.DateTimeFormat(loc, { month: 'short', year: 'numeric', timeZone: tz }).format(date);
       case 'week':
       case 'day':
-        return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
+        return new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'short', year: 'numeric', timeZone: tz }).format(date);
       case 'hour':
-        return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(date);
+        return new Intl.DateTimeFormat(loc, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }).format(date);
       case 'minute':
-        return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).format(date);
+        return new Intl.DateTimeFormat(loc, { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: tz }).format(date);
       default:
-        return new Intl.DateTimeFormat(undefined, { year: 'numeric', timeZone: 'UTC' }).format(date);
+        return new Intl.DateTimeFormat(loc, { year: 'numeric', timeZone: tz }).format(date);
     }
   } catch {
     // Fallbacks
@@ -317,7 +319,9 @@ export function formatMarkerLabelUTC(date, unit) {
 export function formatUTCMonthShort(year, month) {
   const d = toUTCDate({ year, month: Math.max(1, Math.min(12, month)) });
   try {
-    return new Intl.DateTimeFormat(undefined, { month: 'short', timeZone: 'UTC' }).format(d);
+    const loc = CONFIG?.format?.locale;
+    const tz = CONFIG?.format?.timeZone || 'UTC';
+    return new Intl.DateTimeFormat(loc, { month: 'short', timeZone: tz }).format(d);
   } catch {
     // Fallback
     const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

@@ -91,7 +91,27 @@ const CONFIG = {
       monthUpperYears: 12,      // <= 12 years -> months
     },
     maxLabels: 14,
+    // Desired pixel spacing between adjacent fine tick labels across units
+    targetTickPx: 60,
     minLabelSpacingPx: 42,
+    // Axis presentation
+    trackHeightPx: 64,        // matches tailwind h-16
+    markerFontPx: 11,
+    labelFontPx: 10,
+    labelMaxWidthPx: 140,
+    // Mild deadband to reduce step/unit flipping near thresholds (0 = off)
+    hysteresisPct: 0.05, // default hysteresis
+    // Step candidates per unit (standard ticking)
+    stepSets: {
+      year: [1, 2, 5, 10, 20, 25, 50, 100],
+      month: [1, 3, 6],
+      week: [1],
+      day: [1, 2, 5, 10],
+      hour: [1, 2, 3, 6, 12],
+      minute: [1, 5, 10, 15, 30],
+    },
+    // Edge pinning threshold for top markers
+    pinThresholdPx: 6,
     maxDayTicks: 1200,
     maxHourTicks: 1500,
     maxMinuteTicks: 3000,
@@ -108,6 +128,10 @@ const CONFIG = {
     edgePinsMinCount: 2,
     // Hysteresis to avoid unit flicker when zoom changes slightly
     plannerHysteresisScalePct: 0.08, // if |Δscale|/prevScale < 8% and unit changes, keep previous unit
+  },
+  format: {
+    locale: undefined, // e.g., 'en-US' | 'fr-FR'; undefined = browser default
+    timeZone: 'UTC',   // Keep UTC-based timeline semantics by default
   },
   events: {
     defaults: {

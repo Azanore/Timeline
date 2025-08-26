@@ -1,4 +1,4 @@
-import { useContext, useRef, useState, useCallback, useMemo, useEffect } from 'react';
+import { useContext, useRef, useState, useCallback, useMemo, useEffect, useLayoutEffect } from 'react';
 import ZoomControls from './ZoomControls.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { clamp, buildLinearScaler, clampPan, toYearFraction, getAdaptiveScaleBounds } from '../../utils';
@@ -30,6 +30,9 @@ export default function Timeline({ domain }) {
   const [liveMsg, setLiveMsg] = useState('');
   const isVertical = false; // Force horizontal layout only
 
+  // Track container width for responsive layout recomputation
+  const [containerWidth, setContainerWidth] = useState(0);
+
   // Lanes by type removed; events always stack relative to center
 
   // Orientation responsiveness removed: always horizontal
@@ -42,6 +45,31 @@ export default function Timeline({ domain }) {
     const p = Math.round(((viewport?.pan ?? 0) + 0) * 100);
     setLiveMsg(`Zoom ${s}x, Pan ${p}%`);
   }, [viewport?.scale, viewport?.pan]);
+
+  // Observe container width changes to recompute rows responsively
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      try {
+        const rect = el.getBoundingClientRect();
+        const w = Math.max(0, Math.round(rect.width));
+        setContainerWidth(w);
+      } catch {}
+    };
+    measure();
+    let ro;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(measure);
+      ro.observe(el);
+    } else {
+      window.addEventListener('resize', measure);
+    }
+    return () => {
+      if (ro) ro.disconnect();
+      else window.removeEventListener('resize', measure);
+    };
+  }, []);
 
   // Auto-scroll into view: center the selected event by adjusting pan
   useEffect(() => {
@@ -141,7 +169,7 @@ export default function Timeline({ domain }) {
 
   // Build rows (collision-based) for rows-only mode
   const rowsData = useMemo(() => {
-    const width = containerRef.current?.clientWidth || 800;
+    const width = containerWidth || 800;
     const scaleVal = viewport?.scale ?? 1;
     const panVal = viewport?.pan ?? 0;
     // Tiered heights to keep layout predictable (for body visibility only)
@@ -178,7 +206,7 @@ export default function Timeline({ domain }) {
       rows[r].end = x + TOTAL_W; // update last end for collision
     }
     return { rows, tier };
-  }, [sortedEvents, viewport?.scale, viewport?.pan, scaler]);
+  }, [sortedEvents, viewport?.scale, viewport?.pan, scaler, containerWidth]);
 
   return (
     <div className="w-full h-full flex flex-col">

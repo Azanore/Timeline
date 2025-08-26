@@ -23,7 +23,9 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
   const [width, setWidth] = useState(0);
   // Canvas context for precise text width measurement (near pixel-perfect)
   const measureCtxRef = useRef(null);
-  const fontSpecRef = useRef('11px sans-serif');
+  const fontSpecRef = useRef(`${CONFIG.axis?.markerFontPx || 11}px sans-serif`);
+  // Remember last chosen tick config for hysteresis
+  const prevPickRef = useRef(null);
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -95,10 +97,65 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
       const plan = getAxisPlan({ domain, scale, pan, scaler });
       return { unit: plan.unit, step: plan.step, showLabels: true };
     }
-    // Legacy: span derived ONLY from zoom level to keep ticks stable while panning
-    const spanByScale = Math.max(1e-9, (domain?.[1] ?? 1) - (domain?.[0] ?? 0)) / Math.max(1e-9, scale || 1);
-    return getAxisTickConfigBySpan(spanByScale);
-  }, [domain, scale, pan, scaler, usePlanner]);
+    // Width-aware: pick unit/step so adjacent ticks target a consistent pixel spacing across periods
+    // Compute desired count from axis width and targetTickPx
+    const spanYears = Math.max(1e-9, (domain?.[1] ?? 1) - (domain?.[0] ?? 0));
+    const visibleSpanYears = spanYears / Math.max(1e-9, scale || 1);
+    const targetPx = Math.max(16, CONFIG.axis?.targetTickPx || 60);
+    const axisPx = width > 0 ? width : 800;
+    const desiredCount = Math.max(1, Math.floor(axisPx / targetPx));
+    // Convert desired count to desired delta in years
+    const desiredYearsPerTick = visibleSpanYears / desiredCount;
+    // Candidate steps per unit in years
+    const Y = 1;
+    const M = 1 / 12;
+    const D = 1 / 365; // approx
+    const H = 1 / (365 * 24);
+    const MIN = 1 / (365 * 24 * 60);
+    const ss = (CONFIG.axis && CONFIG.axis.stepSets) || {};
+    /** @type {{unit:'month'|'week'|'day'|'hour'|'minute'|'year', step:number, years:number}[]} */
+    const candidates = [];
+    // helper to push from a step array with a converter to years
+    const pushSteps = (unit, steps, toYears) => {
+      if (!Array.isArray(steps)) return;
+      for (const s of steps) {
+        const n = Number(s);
+        if (!Number.isFinite(n) || n <= 0) continue;
+        candidates.push({ unit, step: n, years: toYears(n) });
+      }
+    };
+    pushSteps('month', ss.month || [1,3,6], (s) => s * M);
+    // weeks and days
+    pushSteps('week', ss.week || [1], (s) => (7 * s) * D);
+    pushSteps('day', ss.day || [1,2,5,10], (s) => s * D);
+    // hours
+    pushSteps('hour', ss.hour || [1,2,3,6,12], (s) => s * H);
+    // minutes
+    pushSteps('minute', ss.minute || [1,5,10,15,30], (s) => s * MIN);
+    // years
+    pushSteps('year', ss.year || [1,2,5,10,20,25,50,100], (s) => s * Y);
+    // Filter candidates to those with yearsPerTick >= desiredYearsPerTick (avoid over-dense)
+    const viable = candidates.filter(c => c.years >= desiredYearsPerTick);
+    const pick = (viable.length ? viable : candidates).reduce((best, c) => {
+      const err = Math.abs(c.years - desiredYearsPerTick);
+      return (best == null || err < best.err) ? { c, err } : best;
+    }, null);
+    let chosen = pick?.c || { unit: 'month', step: 1, years: M };
+    // Apply simple hysteresis: only switch if improvement beats threshold
+    const hysteresis = Math.max(0, Number(CONFIG.axis?.hysteresisPct ?? 0));
+    const prev = prevPickRef.current;
+    if (prev && (prev.unit !== chosen.unit || prev.step !== chosen.step) && hysteresis > 0) {
+      const errPrev = Math.abs(prev.years - desiredYearsPerTick);
+      const errNew = Math.abs(chosen.years - desiredYearsPerTick);
+      if (!(errNew < errPrev * (1 - hysteresis))) {
+        chosen = prev; // keep previous choice
+      }
+    }
+    // update ref
+    prevPickRef.current = chosen;
+    const { unit, step } = chosen;
+    return { unit, step, showLabels: true };
+  }, [domain, scale, pan, scaler, usePlanner, width]);
 
   // Context markers: always show helpful anchors at the top
   // - year unit: yearly markers by configured step
@@ -186,6 +243,18 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
       const maxTicks = CONFIG.axis.maxDayTicks; // safety cap
       let count = 0;
       let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'day');
+      // Anchor multi-day steps to a global UTC epoch grid so tick phase is stable while panning
+      if (d) {
+        const s = Math.max(1, Number(step) || 1);
+        if (s > 1) {
+          const epochMs = Date.UTC(1970, 0, 1, 0, 0, 0, 0);
+          const dayMs = 24 * 60 * 60 * 1000;
+          const stepMs = dayMs * s;
+          const tMs = d.getTime();
+          const r = ((tMs - epochMs) % stepMs + stepMs) % stepMs;
+          if (r !== 0) d = new Date(tMs + (stepMs - r));
+        }
+      }
       while (d && count <= maxTicks) {
         const yf = utcDateToYearFraction(d);
         if (yf == null || yf > vMax) break;
@@ -197,6 +266,19 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
       const maxTicks = CONFIG.axis.maxHourTicks; // safety cap
       let count = 0;
       let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'hour');
+      // For non-1 steps, anchor to a global epoch grid so tick phase is stable while panning
+      // Example: for 6-hour steps -> ticks at 00:00, 06:00, 12:00, 18:00 UTC regardless of pan
+      if (d) {
+        const s = Math.max(1, Number(step) || 1);
+        if (s > 1) {
+          const epochMs = Date.UTC(1970, 0, 1, 0, 0, 0, 0);
+          const unitMs = 60 * 60 * 1000;
+          const stepMs = unitMs * s;
+          const tMs = d.getTime();
+          const r = ((tMs - epochMs) % stepMs + stepMs) % stepMs;
+          if (r !== 0) d = new Date(tMs + (stepMs - r));
+        }
+      }
       while (d && count <= maxTicks) {
         const yf = utcDateToYearFraction(d);
         if (yf == null || yf > vMax) break;
@@ -208,6 +290,18 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
       const maxTicks = CONFIG.axis.maxMinuteTicks; // safety cap
       let count = 0;
       let d = alignToUnitStartUTC(yfToUTCDate(vMin), 'minute');
+      // For non-1 steps, anchor to a global epoch grid (e.g., 15m -> :00, :15, :30, :45 UTC) to keep phase stable
+      if (d) {
+        const s = Math.max(1, Number(step) || 1);
+        if (s > 1) {
+          const epochMs = Date.UTC(1970, 0, 1, 0, 0, 0, 0);
+          const unitMs = 60 * 1000;
+          const stepMs = unitMs * s;
+          const tMs = d.getTime();
+          const r = ((tMs - epochMs) % stepMs + stepMs) % stepMs;
+          if (r !== 0) d = new Date(tMs + (stepMs - r));
+        }
+      }
       while (d && count <= maxTicks) {
         const yf = utcDateToYearFraction(d);
         if (yf == null || yf > vMax) break;
@@ -242,7 +336,7 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
 
   // Horizontal only
   return (
-    <div ref={containerRef} className="w-full h-16 relative overflow-hidden">
+    <div ref={containerRef} className="w-full relative overflow-hidden" style={{ height: (CONFIG.axis?.trackHeightPx || 64) + 'px' }}>
       <div className="absolute inset-x-0 top-8 border-t border-border" />
       {(() => {
         // Precompute positions for existing markers
@@ -381,8 +475,9 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           return (
             <div
               key={`mk-${i}-${p.mk.yf}`}
-              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-muted-foreground select-none`}
-              style={p.leftPx != null ? { left: p.leftPx, transform: 'translateX(-50%)' } : { left: `${p.leftPct}%`, transform: 'translateX(-50%)' }}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-muted-foreground select-none`}
+              style={p.leftPx != null ? { left: p.leftPx, transform: 'translateX(-50%)', fontSize: (CONFIG.axis?.markerFontPx || 11) }
+                : { left: `${p.leftPct}%`, transform: 'translateX(-50%)', fontSize: (CONFIG.axis?.markerFontPx || 11) }}
             >
               {yearsOnTop ? (
                 <>
@@ -404,8 +499,8 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           rendered.push(
             <div
               key={`mk-pin-left-${pinTarget.mk.yf}`}
-              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-muted-foreground select-none`}
-              style={width > 0 ? { left: 0, transform: 'translateX(0%)' } : { left: '0%', transform: 'translateX(0%)' }}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-muted-foreground select-none`}
+              style={width > 0 ? { left: 0, transform: 'translateX(0%)', fontSize: (CONFIG.axis?.markerFontPx || 11) } : { left: '0%', transform: 'translateX(0%)', fontSize: (CONFIG.axis?.markerFontPx || 11) }}
             >
               {yearsOnTop ? (
                 <>
@@ -425,8 +520,8 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
           rendered.push(
             <div
               key={`mk-pin-right-${pinTarget.mk.yf}`}
-              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-[11px] text-muted-foreground select-none`}
-              style={width > 0 ? { left: width, transform: 'translateX(-100%)' } : { left: '100%', transform: 'translateX(-100%)' }}
+              className={`absolute ${yearsOnTop ? 'top-0' : 'top-6'} text-muted-foreground select-none`}
+              style={width > 0 ? { left: width, transform: 'translateX(-100%)', fontSize: (CONFIG.axis?.markerFontPx || 11) } : { left: '100%', transform: 'translateX(-100%)', fontSize: (CONFIG.axis?.markerFontPx || 11) }}
             >
               {yearsOnTop ? (
                 <>
@@ -447,7 +542,11 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
       })()}
       {(() => {
         // Decimate labels to avoid overcrowding, but keep it STABLE w.r.t. panning
-        const maxLabels = CONFIG.axis.maxLabels || 12;
+        // Derive label capacity from viewport width to keep a minimum pixel spacing
+        const widthBasedMax = (width > 0)
+          ? Math.max(1, Math.floor(width / Math.max(1, CONFIG.axis.minLabelSpacingPx || 42)))
+          : (CONFIG.axis.maxLabels || 12);
+        const maxLabels = Math.max(1, Math.min(CONFIG.axis.maxLabels || 12, widthBasedMax));
         const spanByScale = Math.max(1e-9, (domain?.[1] ?? 1) - (domain?.[0] ?? 0)) / Math.max(1e-9, scale || 1);
         const unit = tickCfg.unit;
         const step = tickCfg.step || 1;
@@ -460,6 +559,8 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
             .map(m => (/^[-+]?\d{1,6}$/.test(String(m.label)) ? Math.trunc(m.yf) : null))
             .filter(v => v != null)
         );
+        // Enforce minimal pixel spacing across all labels (secondary guard)
+        let lastLabelPx = -Infinity;
         return fineTicks.map((it, idx) => {
           const u = scaler.toUnit(it.yf);
           const uScaled = (u - 0.5) * scale + 0.5 + pan;
@@ -476,6 +577,12 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
             if (!tickCfg.showLabels) return '';
             // Month: suppress January if year marker exists at same spot
             if (it.type === 'month') {
+              // Pan-invariant decimation for months using absolute month index modulo
+              const epochMonthIndex = (1970 * 12 + 0); // Jan 1970 baseline
+              const thisMonthIndex = (it.y * 12 + (it.m - 1));
+              const k = Math.floor((thisMonthIndex - epochMonthIndex) / Math.max(1, step));
+              if ((k % stride) !== 0) return '';
+              // Suppress January label if a year marker exists at same position
               if (it.m === 1 && yearSet.has(it.y)) return '';
               return `${formatUTCMonthShort(it.y, it.m)}`;
             }
@@ -488,48 +595,62 @@ export default function TimelineAxis({ domain = CONFIG.axis.defaultDomain }) {
               if ((k % stride) !== 0) return '';
             }
             if (it.type === 'day') {
+              // Pan-invariant decimation for days using epoch day index modulo
               try {
+                const epochMs = Date.UTC(1970, 0, 1);
+                const tMs = Date.UTC(it.y, it.m - 1, it.d);
+                const dayMs = 24 * 60 * 60 * 1000;
+                const k = Math.floor((tMs - epochMs) / (dayMs * Math.max(1, step)));
+                if ((k % stride) !== 0) return '';
                 const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
-                const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                const fmt = new Intl.DateTimeFormat(CONFIG?.format?.locale, { month: 'short', day: 'numeric', timeZone: (CONFIG?.format?.timeZone || 'UTC') });
                 return (isMajor ? fmt.format(d) + ' ' + formatUTCYear(it.y) : fmt.format(d));
               } catch { return `${it.d}`; }
             }
             if (it.type === 'week') {
               try {
+                // Pan-invariant decimation for weeks using a week-start-aligned epoch baseline
+                const base = new Date(Date.UTC(1970, 0, 1)); // Thu
+                const dow = base.getUTCDay(); // 4
+                let weekStartEpochMs;
+                if (CONFIG.axis?.weekStart === 'sunday') {
+                  weekStartEpochMs = Date.UTC(1970, 0, 1 - dow);
+                } else {
+                  const iso = (dow + 6) % 7;
+                  weekStartEpochMs = Date.UTC(1970, 0, 1 - iso);
+                }
+                const tMs = Date.UTC(it.y, it.m - 1, it.d);
+                const weekMs = 7 * 24 * 60 * 60 * 1000;
+                const k = Math.floor((tMs - weekStartEpochMs) / (weekMs * Math.max(1, step)));
+                if ((k % stride) !== 0) return '';
                 const d = new Date(Date.UTC(it.y, it.m - 1, it.d));
-                const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+                const fmt = new Intl.DateTimeFormat(CONFIG?.format?.locale, { month: 'short', day: 'numeric', timeZone: (CONFIG?.format?.timeZone || 'UTC') });
                 return fmt.format(d);
               } catch { return ''; }
             }
             if (it.type === 'hour') {
-              const time = `${String(it.h).padStart(2, '0')}:00`;
-              if (CONFIG.axis.contextLabels) {
-                try {
-                  const d = new Date(Date.UTC(it.y, (it.m || 1) - 1, it.d || 1));
-                  const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-                  return `${time} • ${fmt.format(d)}`;
-                } catch {}
-              }
-              return time;
+              // Keep hour labels minimal; day/month context is already provided by top markers in hour/minute views
+              return `${String(it.h).padStart(2, '0')}:00`;
             }
             if (it.type === 'minute') {
-              const time = `${String(it.h).padStart(2, '0')}:${String(it.min).padStart(2, '0')}`;
-              if (CONFIG.axis.contextLabels) {
-                try {
-                  const d = new Date(Date.UTC(it.y, (it.m || 1) - 1, it.d || 1));
-                  const fmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-                  return `${time} • ${fmt.format(d)}`;
-                } catch {}
-              }
-              return time;
+              // Keep minute labels minimal for the same reason as hours (avoid redundancy with top markers)
+              return `${String(it.h).padStart(2, '0')}:${String(it.min).padStart(2, '0')}`;
             }
             return '';
           })();
+          // If label exists, ensure minimum spacing in pixels relative to previous shown label
+          if (label) {
+            const minPx = Math.max(1, CONFIG.axis.minLabelSpacingPx || 42);
+            if (leftPx != null) {
+              if (leftPx - lastLabelPx < minPx) return null;
+              lastLabelPx = leftPx;
+            }
+          }
           return (
             <div key={`${it.type}-${it.y}-${it.m || 0}-${it.d || 0}-${it.h || 0}-${it.min || 0}`} className="absolute top-8 select-none" style={leftPx != null ? { left: leftPx, transform: 'translateX(-50%)' } : { left: `${leftPct}%`, transform: 'translateX(-50%)' }}>
               <div className={`w-px ${isMajor ? 'h-3 bg-border' : 'h-2 bg-border/80' } mx-auto`} style={{ transform: 'translateX(-0.5px)' }} />
               {label && (
-                <div className="mt-1 text-[10px] text-muted-foreground tabular-nums whitespace-nowrap truncate max-w-[140px]">{label}</div>
+                <div className="mt-1 text-muted-foreground tabular-nums whitespace-nowrap truncate" style={{ fontSize: (CONFIG.axis?.labelFontPx || 10), maxWidth: (CONFIG.axis?.labelMaxWidthPx || 140) }}>{label}</div>
               )}
             </div>
           );
