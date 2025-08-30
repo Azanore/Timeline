@@ -369,11 +369,12 @@ export function normalizePartialDate(d = {}) {
   };
 }
 
-// Normalize an event object to ensure start/end dates have defaults
+// Normalize an event object to ensure start has defaults; end dates are no longer supported
 export function normalizeEvent(e = {}) {
   const out = { ...e };
   if (e?.start) out.start = normalizePartialDate(e.start);
-  if (e?.end) out.end = normalizePartialDate(e.end);
+  // Strip any legacy end fields
+  if ('end' in out) delete out.end;
   return out;
 }
 

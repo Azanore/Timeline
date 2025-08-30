@@ -61,7 +61,7 @@ export default function ZoomControls() {
   }, [onKey]);
 
   return (
-    <Toolbar className="fixed bottom-6 left-6">
+    <Toolbar className="absolute bottom-6 left-6">
       <Button
         variant="outline"
         size="sm"

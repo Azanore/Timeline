@@ -1,6 +1,5 @@
 // Placeholder validation hook with stable callbacks.
 import { useCallback } from 'react';
-import { comparePartialDate } from '../utils';
 import CONFIG from '../config/index.js';
 
 // Helpers at module scope
@@ -42,18 +41,9 @@ const validateEventFn = (e) => {
   if (body.length === 0) errors.body = 'Required';
   else if (rawBody.length > CONFIG.events.textLimits.bodyMax) errors.body = `Max ${CONFIG.events.textLimits.bodyMax} chars`;
 
-  // Start date validation
-  if (!isValidDatePartsFn(e?.start)) errors.start = 'Invalid start date/time';
-
-  // End date validation (optional)
-  if (e?.end) {
-    if (!isValidDatePartsFn(e.end)) errors.end = 'Invalid end date/time';
-    // Ensure end is not before start if both valid (numeric comparison)
-    try {
-      const a = e.start || {};
-      const b = e.end || {};
-      if (comparePartialDate(b, a) < 0) errors.range = 'End must be after start';
-    } catch {}
+  // Start date validation: only when provided (undated events are allowed)
+  if (e?.start != null) {
+    if (!isValidDatePartsFn(e.start)) errors.start = 'Invalid start date/time';
   }
 
   return { valid: Object.keys(errors).length === 0, errors };

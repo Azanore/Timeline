@@ -20,7 +20,7 @@ import { Pencil, Trash2, X, AlertTriangle } from 'lucide-react';
  * @typedef {Object} EventDialogProps
  * @property {boolean} open
  * @property {() => void} onClose
- * @property {{ id:string, title:string, body?:string, type?:string, start:any, end?:any }} event
+ * @property {{ id:string, title:string, body?:string, type?:string, start:any }} event
  * @property {boolean} [closeOnSave] - If true, closes the dialog after a successful update
  */
 
@@ -41,9 +41,7 @@ export default function EventDialog({ open, onClose, event, closeOnSave = false 
 
   const fmtDate = useMemo(() => {
     if (!event) return '';
-    const startStr = formatPartialUTC(event.start);
-    const endStr = event.end ? formatPartialUTC(event.end) : '';
-    return endStr ? `${startStr} → ${endStr}` : startStr;
+    return formatPartialUTC(event.start);
   }, [event]);
 
   if (!event) return null;

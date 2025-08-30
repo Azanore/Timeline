@@ -3,7 +3,6 @@ import ZoomControls from './ZoomControls.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { clamp, buildLinearScaler, clampPan, toYearFraction, getAdaptiveScaleBounds } from '../../utils';
 import CONFIG from '../../config/index.js';
-import { useEvents } from '../../hooks/useEvents';
 import EventDialog from '../events/EventDialog.jsx';
 import EventCard from '../events/EventCard.jsx';
 
@@ -18,12 +17,13 @@ import EventCard from '../events/EventCard.jsx';
  */
 export default function Timeline({ domain }) {
   const containerRef = useRef(null);
-  const { viewport, setPan, setScale } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 } };
+  const { viewport, setPan, setScale, filteredDatedEvents } = useContext(TimelineContext) || { viewport: { scale: 1, pan: 0 }, filteredDatedEvents: [] };
   const [dragging, setDragging] = useState(false);
   const dragState = useRef({ startX: 0, startPan: 0 });
   const rafRef = useRef(null);
   const pendingPanRef = useRef(null);
-  const { sortedEvents } = useEvents();
+  // Use globally filtered & sorted dated events so Timeline stays in sync with Aside
+  const sortedEvents = filteredDatedEvents || [];
   const scaler = useMemo(() => buildLinearScaler(domain), [domain]);
   const [openEdit, setOpenEdit] = useState(false);
   const [selected, setSelected] = useState(null);

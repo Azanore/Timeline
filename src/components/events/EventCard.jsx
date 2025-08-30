@@ -5,7 +5,7 @@ import TypeBadge from '@/components/ui/TypeBadge.jsx';
 
 /**
  * @typedef {Object} EventCardProps
- * @property {{ id:string, title:string, body?:string, type?:string, start:any, end?:any }} event
+ * @property {{ id:string, title:string, body?:string, type?:string, start:any }} event
  * @property {number} scale
  * @property {boolean} [selected]
  * @property {() => void} [onClick]
@@ -38,10 +38,8 @@ export default function EventCard({ event, scale, selected = false, onClick, ful
   }, [event?.type]);
 
   const dateText = useMemo(() => {
-    const s = event?.start ? formatPartialUTC(event.start) : '';
-    const e = event?.end ? formatPartialUTC(event.end) : '';
-    return e ? `${s} → ${e}` : s;
-  }, [event]);
+    return event?.start ? formatPartialUTC(event.start) : '';
+  }, [event?.start]);
 
   // Sizing: if fullWidth, span the full column; otherwise keep tier-based sizing
   const sizeClasses = fullWidth

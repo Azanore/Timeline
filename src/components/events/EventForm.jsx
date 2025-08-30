@@ -34,6 +34,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
     title: value?.title || '',
     body: value?.body || '',
     type: value?.type || 'other',
+    hasDate: Boolean(value?.start && Number.isFinite(Number(value.start.year))),
     start: {
       year: value?.start?.year || CONFIG.events.defaults.startYear,
       month: value?.start?.month ?? 1,
@@ -41,26 +42,24 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
       hour: value?.start?.hour ?? 0,
       minute: value?.start?.minute ?? 0,
     },
-    end: value?.end ? {
-      year: value?.end?.year ?? value?.start?.year ?? CONFIG.events.defaults.startYear,
-      month: value?.end?.month ?? CONFIG.events.defaults.end.month,
-      day: value?.end?.day ?? CONFIG.events.defaults.end.day,
-      hour: value?.end?.hour ?? CONFIG.events.defaults.end.hour,
-      minute: value?.end?.minute ?? CONFIG.events.defaults.end.minute,
-    } : null,
   }));
   const [errors, setErrors] = useState({});
-  const [endEnabled, setEndEnabled] = useState(!!value?.end);
 
   useEffect(() => {
-    const draft = { ...local, end: endEnabled ? local.end : null };
-    const { errors: errs } = validateEvent({ ...draft, title: local.title });
+    // Validate only the fields that will be submitted
+    const draft = { ...local };
+    const submitShape = {
+      title: draft.title,
+      body: draft.body,
+      type: draft.type,
+      start: draft.hasDate ? draft.start : undefined,
+    };
+    const { errors: errs } = validateEvent(submitShape);
     setErrors(errs);
-  }, [local, endEnabled, validateEvent]);
+  }, [local, validateEvent]);
 
   const update = (patch) => setLocal(prev => ({ ...prev, ...patch }));
   const updateStart = (patch) => setLocal(prev => ({ ...prev, start: { ...prev.start, ...patch } }));
-  const updateEnd = (patch) => setLocal(prev => ({ ...prev, end: { ...(prev.end || {}), ...patch } }));
 
   return (
     <form
@@ -68,15 +67,20 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        const draft = { ...local, end: endEnabled ? (local.end || { year: local.start.year, ...CONFIG.events.defaults.end }) : null };
-        const { valid } = validateEvent(draft);
+        const draft = { ...local };
+        const submitShape = {
+          title: draft.title,
+          body: draft.body,
+          type: draft.type,
+          start: draft.hasDate ? (normalizePartialDate(draft.start) || { year: CONFIG.events.defaults.startYear, month: 1, day: 1, hour: 0, minute: 0 }) : undefined,
+        };
+        const { valid } = validateEvent(submitShape);
         if (!valid) return;
         const cleaned = {
-          ...draft,
-          title: sanitizeText(draft.title),
-          body: sanitizeText(draft.body),
-          start: normalizePartialDate(draft.start),
-          end: endEnabled && draft.end ? normalizePartialDate(draft.end) : undefined,
+          title: sanitizeText(submitShape.title),
+          body: sanitizeText(submitShape.body),
+          type: submitShape.type,
+          ...(draft.hasDate ? { start: submitShape.start } : {}),
         };
         onSubmit?.(cleaned);
       }}
@@ -111,6 +115,32 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
         {errors.body && <p className="text-xs text-destructive mt-1">{errors.body}</p>}
       </div>
 
+      {/* Has date switch */}
+      <div className="pt-2">
+        <label className="inline-flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={local.hasDate}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setLocal(prev => ({
+                ...prev,
+                hasDate: checked,
+                // When enabling, ensure defaults exist
+                start: checked ? {
+                  year: prev.start?.year || CONFIG.events.defaults.startYear,
+                  month: prev.start?.month ?? 1,
+                  day: prev.start?.day ?? 1,
+                  hour: prev.start?.hour ?? 0,
+                  minute: prev.start?.minute ?? 0,
+                } : prev.start,
+              }));
+            }}
+          />
+          Has date
+        </label>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-sm text-foreground mb-1" htmlFor="event-year">Year</label>
@@ -122,6 +152,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             min={CONFIG.events.yearRange.min}
             max={CONFIG.events.yearRange.max}
             placeholder="YYYY"
+            disabled={!local.hasDate}
           />
           {errors.start && <p className="text-xs text-destructive mt-1">{errors.start}</p>}
         </div>
@@ -153,6 +184,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             min={1}
             max={12}
             placeholder="MM"
+            disabled={!local.hasDate}
           />
         </div>
         <div>
@@ -164,6 +196,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             min={1}
             max={31}
             placeholder="DD"
+            disabled={!local.hasDate}
           />
         </div>
         <div>
@@ -175,6 +208,7 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             min={0}
             max={23}
             placeholder="HH"
+            disabled={!local.hasDate}
           />
         </div>
         <div>
@@ -186,93 +220,10 @@ export default function EventForm({ value, onCancel, onSubmit, labels = { submit
             min={0}
             max={59}
             placeholder="MM"
+            disabled={!local.hasDate}
           />
         </div>
       </div>
-
-      <div className="pt-2">
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={endEnabled}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setEndEnabled(checked);
-              if (checked && !local.end) {
-                setLocal(prev => ({
-                  ...prev,
-                  end: {
-                    year: prev.start.year,
-                    ...CONFIG.events.defaults.end,
-                  },
-                }));
-              }
-            }}
-          />
-          Period (has end date)
-        </label>
-      </div>
-
-      {endEnabled && (
-        <div className="grid grid-cols-5 gap-3">
-          <div>
-            <label className="block text-sm text-foreground mb-1" htmlFor="event-end-year">End Year</label>
-            <Input
-              type="number"
-              value={local.end?.year || ''}
-              onChange={(e) => updateEnd({ year: e.target.value ? Number(e.target.value) : '' })}
-              id="event-end-year"
-              min={CONFIG.events.yearRange.min}
-              max={CONFIG.events.yearRange.max}
-              placeholder="YYYY"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-foreground mb-1">Month</label>
-            <Input
-              type="number"
-              value={local.end?.month || ''}
-              onChange={(e) => updateEnd({ month: e.target.value ? Number(e.target.value) : '' })}
-              min={1}
-              max={12}
-              placeholder="MM"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-foreground mb-1">Day</label>
-            <Input
-              type="number"
-              value={local.end?.day || ''}
-              onChange={(e) => updateEnd({ day: e.target.value ? Number(e.target.value) : '' })}
-              min={1}
-              max={31}
-              placeholder="DD"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-foreground mb-1">Hour</label>
-            <Input
-              type="number"
-              value={local.end?.hour || ''}
-              onChange={(e) => updateEnd({ hour: e.target.value ? Number(e.target.value) : '' })}
-              min={0}
-              max={23}
-              placeholder="HH"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-foreground mb-1">Minute</label>
-            <Input
-              type="number"
-              value={local.end?.minute || ''}
-              onChange={(e) => updateEnd({ minute: e.target.value ? Number(e.target.value) : '' })}
-              min={0}
-              max={59}
-              placeholder="MM"
-            />
-          </div>
-        </div>
-      )}
 
       <div className="flex justify-end gap-2 pt-2">
         <Button type="button" variant="outline" onClick={onCancel}>{labels.cancelLabel}</Button>

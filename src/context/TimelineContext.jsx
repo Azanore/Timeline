@@ -1,5 +1,5 @@
 import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
-import { normalizeEvent } from '../utils';
+import { normalizeEvent, comparePartialDate } from '../utils';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { useRef } from 'react';
 import CONFIG from '../config/index.js';
@@ -110,11 +110,46 @@ export function TimelineProvider({ children }) {
     return tl?.viewport || { scale: CONFIG.zoom.reset, pan: 0 };
   });
 
+  // Filters and UI tab state (per-timeline), persisted
+  const defaultFilters = useMemo(() => ({
+    // types: null => all types selected; otherwise Set of type keys
+    types: null,
+    search: '',
+    sort: 'dateAsc', // 'dateAsc' | 'dateDesc'
+    asideTab: 'dated', // 'dated' | 'undated' (UI state; timeline ignores)
+  }), []);
+
+  const [filters, setFilters] = useState(() => {
+    const app = readApp();
+    const tl = app?.data?.[activeTimelineId];
+    const f = tl?.filters;
+    if (!f) return defaultFilters;
+    // Normalize persisted shape
+    return {
+      types: Array.isArray(f.types) ? new Set(f.types) : (f.types instanceof Set ? f.types : (f.types == null ? null : new Set(f.types))),
+      search: String(f.search ?? ''),
+      sort: f.sort === 'dateDesc' ? 'dateDesc' : 'dateAsc',
+      asideTab: f.asideTab === 'undated' ? 'undated' : 'dated',
+    };
+  });
+
   // Load viewport when active timeline changes
   useEffect(() => {
     const app = readApp();
     const tl = app?.data?.[activeTimelineId];
     setViewport(tl?.viewport || { scale: CONFIG.zoom.reset, pan: 0 });
+    // Load filters for the active timeline
+    const f = tl?.filters;
+    if (!f) {
+      setFilters(defaultFilters);
+    } else {
+      setFilters({
+        types: Array.isArray(f.types) ? new Set(f.types) : (f.types instanceof Set ? f.types : (f.types == null ? null : new Set(f.types))),
+        search: String(f.search ?? ''),
+        sort: f.sort === 'dateDesc' ? 'dateDesc' : 'dateAsc',
+        asideTab: f.asideTab === 'undated' ? 'undated' : 'dated',
+      });
+    }
   }, [activeTimelineId, readApp]);
 
   // Persist timeline data (events + viewport) into APP_KEY with debounce from CONFIG
@@ -125,10 +160,78 @@ export function TimelineProvider({ children }) {
     }
     const app = readApp() || { version: CONFIG.app.initialVersion, activeTimelineId, timelines, data: {} };
     const existing = app.data?.[activeTimelineId] || { id: activeTimelineId, name: timelines.find(t => t.id === activeTimelineId)?.name || 'Untitled', createdAt: Date.now(), version: CONFIG.app.initialVersion, events: [], viewport: { scale: CONFIG.zoom.reset, pan: 0 } };
-    const updatedEntry = { ...existing, updatedAt: Date.now(), events: events || [], viewport: viewport || { scale: CONFIG.zoom.reset, pan: 0 } };
+    const persistedFilters = {
+      types: filters?.types instanceof Set ? Array.from(filters.types) : (filters?.types == null ? null : Array.from(new Set(filters.types))),
+      search: String(filters?.search ?? ''),
+      sort: filters?.sort === 'dateDesc' ? 'dateDesc' : 'dateAsc',
+      asideTab: filters?.asideTab === 'undated' ? 'undated' : 'dated',
+    };
+    const updatedEntry = { ...existing, updatedAt: Date.now(), events: events || [], viewport: viewport || { scale: CONFIG.zoom.reset, pan: 0 }, filters: persistedFilters };
     const next = { ...app, activeTimelineId, timelines, data: { ...(app.data || {}), [activeTimelineId]: updatedEntry } };
     debouncedSetRef.current(next);
-  }, [events, viewport, activeTimelineId, timelines, readApp, makeDebouncedSet]);
+  }, [events, viewport, filters, activeTimelineId, timelines, readApp, makeDebouncedSet]);
+
+  // Derived helpers for dated/undated + filtering and sorting
+  const isDated = useCallback((e) => Number.isFinite(Number(e?.start?.year)), []);
+
+  const normalizedTypes = useMemo(() => (filters?.types instanceof Set ? filters.types : (filters?.types == null ? null : new Set(filters.types))), [filters]);
+
+  const applyTypeFilter = useCallback((e) => {
+    if (!normalizedTypes || normalizedTypes.size === 0) return true;
+    const t = e?.type;
+    return normalizedTypes.has(t);
+  }, [normalizedTypes]);
+
+  const searchText = useMemo(() => String(filters?.search ?? '').trim().toLowerCase(), [filters]);
+  const applySearch = useCallback((e) => {
+    if (!searchText) return true;
+    const title = String(e?.title ?? '').toLowerCase();
+    const body = String(e?.body ?? '').toLowerCase();
+    return title.includes(searchText) || body.includes(searchText);
+  }, [searchText]);
+
+  const sortOrder = filters?.sort === 'dateDesc' ? 'dateDesc' : 'dateAsc';
+
+  const filteredDatedEvents = useMemo(() => {
+    const items = (events || []).filter(isDated).filter(applyTypeFilter).filter(applySearch);
+    // Stable sort by date, then by original index
+    const mapped = items.map((e, i) => ({ e, i }));
+    mapped.sort((a, b) => {
+      const cmp = comparePartialDate(a.e?.start, b.e?.start);
+      if (cmp !== 0) return sortOrder === 'dateDesc' ? -cmp : cmp;
+      return a.i - b.i;
+    });
+    return mapped.map(w => w.e);
+  }, [events, applyTypeFilter, applySearch, sortOrder, isDated]);
+
+  const filteredUndatedEvents = useMemo(() => {
+    return (events || []).filter(e => !isDated(e)).filter(applyTypeFilter).filter(applySearch);
+  }, [events, applyTypeFilter, applySearch, isDated]);
+
+  // Combined convenience list (not used by timeline); mirrors aside tab selection
+  const filteredEvents = useMemo(() => (filters?.asideTab === 'undated' ? filteredUndatedEvents : filteredDatedEvents), [filters, filteredDatedEvents, filteredUndatedEvents]);
+
+  // Public setters for filters
+  const setTypesFilter = useCallback((arrOrSet) => {
+    setFilters(prev => ({
+      ...prev,
+      types: arrOrSet == null ? null : (arrOrSet instanceof Set ? arrOrSet : new Set(arrOrSet)),
+    }));
+  }, []);
+
+  const setSearchFilter = useCallback((text) => {
+    setFilters(prev => ({ ...prev, search: String(text ?? '') }));
+  }, []);
+
+  const setSortOrder = useCallback((order) => {
+    setFilters(prev => ({ ...prev, sort: order === 'dateDesc' ? 'dateDesc' : 'dateAsc' }));
+  }, []);
+
+  const setAsideTab = useCallback((tab) => {
+    setFilters(prev => ({ ...prev, asideTab: tab === 'undated' ? 'undated' : 'dated' }));
+  }, []);
+
+  const clearFilters = useCallback(() => setFilters(defaultFilters), [defaultFilters]);
 
   // Event CRUD
   const addEvent = useCallback((input) => {
@@ -166,7 +269,18 @@ export function TimelineProvider({ children }) {
     addEvent,
     updateEvent,
     removeEvent,
-  }), [activeTimelineId, setActiveTimeline, timelines, createTimeline, deleteTimeline, viewport, setScale, setPan, addEvent, updateEvent, removeEvent, events]);
+    // Filters API
+    filters,
+    setTypesFilter,
+    setSearchFilter,
+    setSortOrder,
+    setAsideTab,
+    clearFilters,
+    // Derived projections
+    filteredEvents,
+    filteredDatedEvents,
+    filteredUndatedEvents,
+  }), [activeTimelineId, setActiveTimeline, timelines, createTimeline, deleteTimeline, viewport, setScale, setPan, addEvent, updateEvent, removeEvent, events, filters, setTypesFilter, setSearchFilter, setSortOrder, setAsideTab, clearFilters, filteredEvents, filteredDatedEvents, filteredUndatedEvents]);
 
   return (
     <TimelineContext.Provider value={value}>
