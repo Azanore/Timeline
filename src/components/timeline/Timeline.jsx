@@ -1,5 +1,6 @@
 import { useContext, useRef, useState, useCallback, useMemo, useEffect, useLayoutEffect } from 'react';
 import ZoomControls from './ZoomControls.jsx';
+import Minimap from './Minimap.jsx';
 import { TimelineContext } from '../../context/TimelineContext.jsx';
 import { clamp, buildLinearScaler, clampPan, toYearFraction, getAdaptiveScaleBounds } from '../../utils';
 import CONFIG from '../../config/index.js';
@@ -262,6 +263,7 @@ export default function Timeline({ domain }) {
         </div>
         
       </div>
+      <Minimap domain={domain} events={sortedEvents} />
       <ZoomControls />
       <EventDialog open={openEdit} onClose={() => setOpenEdit(false)} event={selected} closeOnSave />
     </div>
